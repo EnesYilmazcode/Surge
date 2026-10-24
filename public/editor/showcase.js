@@ -56,15 +56,17 @@
       const s = Math.sin(Math.PI * p);
       return { p, center: ORIGIN, look: LOOK, r: 24 - 3 * s, h: 14 + 4 * s, a: 0.6 + FAR_SIDE * p };
     };
-    const focus = (p, at, aOff, r, h) => ({ p, center: at, look: at, r, h, a: 0.6 + FAR_SIDE * p + aOff });
+    // Close-up angles are absolute, not relative to the sweep. The camera sits
+    // at +z for angle 0, which is the side of the battery that carries its label.
+    const focus = (p, at, a, r, h) => ({ p, center: at, look: at, r, h, a });
 
     const EVENTS = [
-      { p: PART_AT[0], at: BATTERY,  aOff:  0.7, r: 10, h: 6 },
-      { p: PART_AT[1], at: RESISTOR, aOff: -0.6, r: 6.5, h: 4.5 },
-      { p: PART_AT[2], at: LED,      aOff:  0.9, r: 6, h: 4 },
-      { p: 0.375,      at: RAILS,    aOff: -0.8, r: 8, h: 6 },
-      { p: 0.45,       at: SIGNAL,   aOff:  0.6, r: 7, h: 5 },
-      { p: RUN_AT,     at: LED,      aOff: -0.5, r: 8, h: 5 },
+      { p: PART_AT[0], at: BATTERY,  a: 0.12, r: 10, h: 6 },
+      { p: PART_AT[1], at: RESISTOR, a: 0.35, r: 6.5, h: 4.5 },
+      { p: PART_AT[2], at: LED,      a: 0.5,  r: 6, h: 4 },
+      { p: 0.375,      at: RAILS,    a: 0.9,  r: 8, h: 6 },
+      { p: 0.45,       at: SIGNAL,   a: 0.15, r: 7, h: 5 },
+      { p: RUN_AT,     at: LED,      a: 0.3,  r: 8, h: 5 },
     ];
 
     // Each event: swing out, push in, hold briefly, then pull back to the overview.
@@ -75,7 +77,7 @@
       const next = EVENTS[i + 1];
       const prevEnd = i ? EVENTS[i - 1].p + 0.05 : 0;
       if (e.p - 0.03 > prevEnd) keys.push(overview(e.p - 0.03));
-      keys.push(focus(e.p, e.at, e.aOff, e.r, e.h), focus(e.p + 0.02, e.at, e.aOff, e.r, e.h));
+      keys.push(focus(e.p, e.at, e.a, e.r, e.h), focus(e.p + 0.02, e.at, e.a, e.r, e.h));
       if (!next || next.p - 0.03 > e.p + 0.05) keys.push(overview(e.p + 0.05));
     });
     keys.push(overview(0.8), { ...overview(1), r: 34, h: 22 });
