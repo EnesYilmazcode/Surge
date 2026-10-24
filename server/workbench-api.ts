@@ -43,7 +43,9 @@ const schema = {
   type: 'object',
   properties: {
     reply: string,
-    actions: { type: 'array', maxItems: 50, items: { anyOf: [
+    // Enforce the 50-action limit locally; bounding this union at the provider
+    // expands Gemini's response constraint beyond its serving state limit.
+    actions: { type: 'array', items: { anyOf: [
       ...['resistor', 'led', 'buzzer', 'button'].map((kind) => action('place_' + kind, {
         holeA: string, holeB: string,
         ...(kind === 'resistor' ? { resistance: { type: 'number', minimum: 1, maximum: 1000000000 } } : {}),

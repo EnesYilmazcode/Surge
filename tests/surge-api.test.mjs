@@ -98,7 +98,11 @@ test('workbench chat returns validated pin-level actions through the private API
     { tool: 'place_battery' },
     { tool: 'add_wire', from: 'battery_0_pin0', to: 'tp_3', color: 'red' },
   ] }
-  await withServer({ apiKey: 'test-private-key', fetch: async () => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(proposal) }] } }] }) }, async (url) => {
+  await withServer({ apiKey: 'test-private-key', fetch: async (_, init) => {
+    const schema = JSON.parse(init.body).generationConfig.responseJsonSchema
+    assert.equal(schema.properties.actions.maxItems, undefined, 'keep the provider union constraint within its state limit')
+    return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(proposal) }] } }] })
+  } }, async (url) => {
     const response = await fetch(url + '/api/surge/workbench', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: 'Add a battery', markdown: 'Empty board', board: { components: [], wires: [] }, history: [] }),
