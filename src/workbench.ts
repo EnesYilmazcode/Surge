@@ -1,4 +1,5 @@
 import { workbenchThree } from './workbench-three'
+import type { SketchOptions } from './sketch-runtime'
 
 // The homepage scene is this same editor opened with ?showcase: the board
 // alone, driven by the page's scroll. It never saves anything. The flag keeps
@@ -7,6 +8,12 @@ const showcase = new URLSearchParams(window.location.search).has('showcase')
 ;(window as unknown as Record<string, unknown>).THREE = workbenchThree
 ;(window as unknown as Record<string, unknown>).App = {
   isHero: showcase,
+  // Runs the open sketch and returns its pin changes. The interpreter loads on first use.
+  async runSketch(sketch: string, options?: SketchOptions) {
+    const { runSketch, levelsAt } = await import('./sketch-runtime')
+    const run = runSketch(sketch, options)
+    return { ...run, at: (ms: number) => levelsAt(run, ms) }
+  },
   onReady(callback: () => void) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', callback, { once: true })
     else callback()

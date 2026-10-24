@@ -69,14 +69,24 @@
   }
 
   // ── ESP32 as a power source ─────────────────────────────────
-  //  The board is powered over USB, so its 3V3 pin is a 3.3 V supply, and any
-  //  pin the sketch sets as OUTPUT is driven high. That is a steady-state
-  //  reading: the sketch is not run, so a blinking LED reads as on.
+  //  The board is powered over USB, so its 3V3 pin is a 3.3 V supply. Each
+  //  pin the sketch drives is a supply too: 3.3 V when HIGH, 0 V when LOW.
+  //  The levels come from App.runSketch, which runs the sketch on a virtual
+  //  clock; without them (the Node tests) every OUTPUT pin reads HIGH.
   const ESP32_PINS = [   // the same order as App.ESP32_PINS in parts.js
     'EN', 'VP', 'VN', 'D34', 'D35', 'D32', 'D33', 'D25', 'D26', 'D27', 'D14', 'D12', 'D13', 'GND', 'VIN',
     'D23', 'D22', 'TX0', 'RX0', 'D21', 'D19', 'D18', 'D5', 'TX2', 'RX2', 'D4', 'D2', 'D15', 'GND', '3V3',
   ];
   const ESP32_GNDS = [13, 28];
+  const ESP32_3V3 = 29;
+
+  // GPIO number -> index in ESP32_PINS, for the pins a sketch can use.
+  const GPIO_INDEX = {};
+  ESP32_PINS.forEach((name, index) => {
+    const gpio = /^D(\d+)$/.test(name) ? +name.slice(1)
+      : { VP: 36, VN: 39, TX0: 1, RX0: 3, TX2: 17, RX2: 16 }[name];
+    if (gpio !== undefined) GPIO_INDEX[gpio] = index;
+  });
 
   // GPIO numbers a sketch configures with pinMode(pin, OUTPUT). The pin may be
   // a number or a constant declared with `const int` or `#define`.
@@ -93,19 +103,35 @@
     return [...pins];
   }
 
-  // Each supply is a virtual 3.3 V battery, so the solver and the report treat
-  // it like any other source.
-  function espSupplies(graph, sketch) {
+  // Each supply is a virtual battery, so the solver and the report treat it
+  // like any other source. `drive` maps a GPIO number to 0 or 1.
+  function espSupplies(graph, drive) {
     const out = [];
-    const driven = outputPins(sketch);
     graph.forEach(({ comp, nodes }) => {
       if (comp.type !== 'esp32') return;
-      const add = (label, pin) => out.push({
-        comp: { type: 'battery', virtual: true, label, values: { voltage: 3.3 }, pins: [0, 1], holeRefs: null },
+      const add = (pin, volts) => out.push({
+        comp: { type: 'battery', virtual: true, label: 'ESP32 ' + ESP32_PINS[pin], values: { voltage: volts }, pins: [0, 1], holeRefs: null },
         nodes: [nodes[pin], nodes[ESP32_GNDS[1]]],
       });
-      add('ESP32 3V3', ESP32_PINS.indexOf('3V3'));
-      driven.forEach(n => { const pin = ESP32_PINS.indexOf('D' + n); if (pin >= 0) add('ESP32 D' + n, pin); });
+      add(ESP32_3V3, 3.3);
+      Object.keys(drive).forEach(gpio => {
+        const pin = GPIO_INDEX[gpio];
+        if (pin !== undefined) add(pin, drive[gpio] ? 3.3 : 0);
+      });
+    });
+    return out;
+  }
+
+  // What digitalRead sees on each GPIO: 0 when the pin is wired to GND, 1 when
+  // wired to 3V3, null when it goes nowhere.
+  function espInputs(graph) {
+    const out = {};
+    graph.forEach(({ comp, nodes }) => {
+      if (comp.type !== 'esp32') return;
+      Object.keys(GPIO_INDEX).forEach(gpio => {
+        const node = nodes[GPIO_INDEX[gpio]];
+        out[gpio] = node === nodes[ESP32_GNDS[1]] ? 0 : node === nodes[ESP32_3V3] ? 1 : null;
+      });
     });
     return out;
   }
@@ -302,7 +328,12 @@
     }
 
     const built     = buildGraph(components, wires);
-    const graph     = built.concat(espSupplies(built, options && options.sketch));
+    let drive = options && options.pins;
+    if (!drive) {
+      drive = {};
+      outputPins(options && options.sketch).forEach(n => { drive[n] = 1; });
+    }
+    const graph     = built.concat(espSupplies(built, drive));
     const lines     = [];
     const branches  = [];
     const ledsOn    = [];
@@ -640,18 +671,24 @@
   }
 
   // ── Public: runSimulation ────────────────────────────────────
-  //  Solve with analyze(), then render the result.
-  function runSimulation() {
+  //  Solve with analyze(), then render the result. With an ESP32 on the board
+  //  the sketch is run first, and its pin changes are replayed in real time:
+  //  each change solves the circuit again.
+  let _playback = null;      // the timer that replays the sketch
+  let _sketchToken = 0;      // bumped to drop a sketch run that is no longer wanted
+
+  function stopPlayback() {
+    _sketchToken++;
+    if (_playback) { clearInterval(_playback); _playback = null; }
+  }
+
+  // Solve the board for the given pin levels and show it.
+  function render(pins) {
     const { components, wires } = App.state;
-    const isRerun = _btnClickHandler !== null; // already running = button click re-run
     clearSimVisuals(); // preserve button states across re-runs
-
-    // Switch to select mode so user can click components during simulation
-    if (!isRerun && App.setMode) App.setMode('select');
-
-    const result = analyze(components, wires, { sketch: App.getSketch ? App.getSketch() : '' });
+    const result = analyze(components, wires, { pins });
     showResults(result.lines);
-    if (result.status === 'empty') return;
+    if (result.status === 'empty') return result;
 
     const current = new Map();
     components.forEach(c => { if (c._simId && result.currents) current.set(c, result.currents[c._simId]); });
@@ -663,6 +700,48 @@
       document.getElementById('sim-run-btn').style.display  = 'none';
       document.getElementById('sim-stop-btn').style.display = 'inline-flex';
     }
+    return result;
+  }
+
+  function playSketch(components, wires) {
+    const token = ++_sketchToken;
+    const inputs = espInputs(buildGraph(components, wires));
+    App.runSketch(App.getSketch ? App.getSketch() : '', { inputs }).then(run => {
+      if (token !== _sketchToken) return;
+      if (run.error) {
+        const result = render({});
+        showResults(result.lines.concat({ text: 'Sketch: ' + run.error, cls: 'sim-err' }));
+        return;
+      }
+      const start = performance.now();
+      let last = null;
+      const tick = () => {
+        const pins = run.at(run.duration ? (performance.now() - start) % run.duration : 0);
+        const key = JSON.stringify(pins);
+        if (key === last) return;
+        last = key;
+        render(pins);
+      };
+      tick();
+      _playback = setInterval(tick, 40);
+    }).catch(error => {
+      if (token === _sketchToken) showResults(render({}).lines.concat({ text: 'Sketch: ' + error.message, cls: 'sim-err' }));
+    });
+  }
+
+  function runSimulation() {
+    const { components, wires } = App.state;
+    const isRerun = _btnClickHandler !== null; // already running = button click re-run
+    stopPlayback();
+
+    // Switch to select mode so user can click components during simulation
+    if (!isRerun && App.setMode) App.setMode('select');
+
+    const withSketch = App.runSketch && components.some(c => c.type === 'esp32');
+    const result = render(withSketch ? {} : undefined);
+    if (result.status === 'empty') return;
+    if (withSketch) playSketch(components, wires);
+
     // Only install the click handler on the first run — re-runs from
     // the button handler itself keep the same handler alive.
     if (!isRerun) installButtonClicks();
@@ -670,6 +749,7 @@
 
   // ── Public: stopSimulation ──────────────────────────────────
   function stopSimulation() {
+    stopPlayback();
     clearSimVisuals();
     // Reset all buttons directly — no toggleButton call to avoid re-entrancy
     App.state.components.forEach(c => {
@@ -700,5 +780,5 @@
     App.stopSimulation = stopSimulation;
   }
 
-  return { PROPS, UnionFind, bbNodeId, buildGraph, buildNetlist, analyze, outputPins, install };
+  return { PROPS, UnionFind, bbNodeId, buildGraph, buildNetlist, analyze, outputPins, espInputs, install };
 });
