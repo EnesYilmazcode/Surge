@@ -221,7 +221,6 @@
     });
 
     document.getElementById('wire-color-row').style.display  = m === 'wire' ? 'block' : 'none';
-    document.getElementById('rotate-badge').style.display    = m === 'place' ? 'block' : 'none';
     App.setHint(MODE_HINTS[m]);
   };
 

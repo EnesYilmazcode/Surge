@@ -370,7 +370,11 @@
     const inp = $('surge-input');
     if (!inp) return;
     inp.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        // With nothing typed, Enter confirms the pending proposal
+        if (!inp.value.trim() && pending) accept(); else ask();
+      }
     });
     inp.addEventListener('input', () => {
       inp.style.height = 'auto';

@@ -389,6 +389,8 @@
         case 'p': case 'P': App.setMode('place');  break;
         case 'w': case 'W': App.setMode('wire');   break;
         case 'Escape':
+          App.deselect();              // drop the selection highlight, not just the mode
+          state.pickedType = null;     // and the part picked from the library
           App.setMode('select');
           break;
         case 'Delete':

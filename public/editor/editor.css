@@ -345,22 +345,6 @@ canvas {
   display: none;
 }
 
-#rotate-badge {
-  position: absolute;
-  bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 5px 10px;
-  font-size: 11px;
-  color: var(--glass-ink-2);
-  background: var(--glass);
-  border: 1px solid var(--glass-line);
-  border-radius: 999px;
-  pointer-events: none;
-  display: none;
-}
-#rotate-badge kbd { background: rgba(255,255,255,0.1); color: var(--glass-ink); border-color: rgba(255,255,255,0.18); }
-
 .view-tools {
   position: absolute;
   bottom: 14px;
