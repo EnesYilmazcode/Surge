@@ -59,7 +59,15 @@
     resistor: { resistance: 470 },    // about 15 mA on 9 V through an LED
     led:      { forwardVoltage: 2.0, thresholdCurrent: 0.001, maxCurrent: 0.020 },
     buzzer:   { resistance: 42,      thresholdCurrent: 0.001 },
+    // Newer parts. A motor, fan or sensor is modelled by the load it draws.
+    fan:           { resistance: 68 },
+    potentiometer: { resistance: 10000, wiper: 0.5 },   // the wiper splits the track
+    servo:         { resistance: 900 },                 // idle draw from its + and − legs
+    ultrasonic:    { resistance: 330 },                 // draw from VCC to GND
   };
+
+  // Parts placed on the board but not simulated yet. Their notes say so.
+  const NOT_SIMULATED = { transistor: 'Transistor', seg7: '7-segment display' };
 
   // A placed component carries its own values. PROPS is the default for parts
   // built before instance values existed, and is what keeps this module
@@ -292,9 +300,34 @@
 
         case 'resistor':
         case 'buzzer':
+        case 'fan':
           elements.push({ id, kind: 'resistor',
             a: track(nodes[0]), b: track(nodes[1]),
             resistance: p.resistance || 0 });
+          break;
+
+        case 'potentiometer': {
+          // Two resistors meet at the wiper (pin 1): pin 0 - wiper - pin 2
+          const w = Math.min(1, Math.max(0, p.wiper ?? 0.5)), R = p.resistance || 0;
+          elements.push({ id: id + '_top', kind: 'resistor',
+            a: track(nodes[0]), b: track(nodes[1]), resistance: Math.max(R * w, 1) });
+          elements.push({ id: id + '_bottom', kind: 'resistor',
+            a: track(nodes[1]), b: track(nodes[2]), resistance: Math.max(R * (1 - w), 1) });
+          break;
+        }
+
+        case 'servo':
+          // The signal leg (pin 0) carries no current; + and − draw power.
+          track(nodes[0]);
+          elements.push({ id, kind: 'resistor',
+            a: track(nodes[1]), b: track(nodes[2]), resistance: p.resistance || 0 });
+          break;
+
+        case 'ultrasonic':
+          // VCC (pin 0) to GND (pin 3) draws power; TRIG and ECHO are not modelled.
+          track(nodes[1]); track(nodes[2]);
+          elements.push({ id, kind: 'resistor',
+            a: track(nodes[0]), b: track(nodes[3]), resistance: p.resistance || 0 });
           break;
 
         case 'led':
@@ -668,6 +701,7 @@
     App.state.components.forEach(c => {
       if (c.type === 'led')    dimLED(c);
       if (c.type === 'buzzer') { deactivateBuzzer(c); c.group.userData.setActive?.(false); }
+      if (c.type === 'fan')    c.group.userData.setActive?.(false);
     });
     stopAllBuzzers();
     hideResults();
@@ -692,13 +726,19 @@
     const { components, wires } = App.state;
     clearSimVisuals(); // preserve button states across re-runs
     const result = analyze(components, wires, { pins });
-    showResults(result.lines.concat(_sketchErrors));
+    const notes = components.filter(c => NOT_SIMULATED[c.type]).map(c => ({
+      text: '  ' + NOT_SIMULATED[c.type] + ': placed on the board, not simulated yet.', cls: 'sim-warn',
+    }));
+    showResults(result.lines.concat(notes, _sketchErrors));
     if (result.status === 'empty') return result;
 
     const current = new Map();
     components.forEach(c => { if (c._simId && result.currents) current.set(c, result.currents[c._simId]); });
     result.ledsOn.forEach(c => lightUpLED(c, current.get(c)));
     result.buzzersOn.forEach(c => { activateBuzzer(c); c.group.userData.setActive?.(true); });
+    components.forEach(c => {   // a fan turns only while current flows through it
+      if (c.type === 'fan') c.group.userData.setActive?.(Math.abs(current.get(c) || 0) > 1e-6);
+    });
 
     if (result.status === 'ok') {
       App.simRunning = true;

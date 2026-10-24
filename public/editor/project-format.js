@@ -1,6 +1,8 @@
 (function(root) {
   'use strict';
-  const types = new Set(['resistor', 'led', 'battery', 'buzzer', 'button', 'esp32']);
+  // Socket count per part. The battery sits off the board and has none.
+  const PIN_COUNT = { resistor: 2, led: 2, buzzer: 2, button: 2, esp32: 30, capacitor: 2, potentiometer: 3, servo: 3, ultrasonic: 4, transistor: 3, fan: 2, seg7: 10 };
+  const types = new Set([...Object.keys(PIN_COUNT), 'battery']);
   const fileName = /^[\w\-. ]{1,40}$/;
   const rows = new Set(['a','b','c','d','e','f','g','h','i','j','tp','tn','bn','bp']);
   function hole(value) {
@@ -18,8 +20,8 @@
         if (!c.position || !Number.isFinite(c.position.x) || !Number.isFinite(c.position.z) || Math.abs(c.position.x) > 1000 || Math.abs(c.position.z) > 1000) throw new Error('Invalid battery position.');
         result.position = { x: c.position.x, z: c.position.z };
       } else {
-        const sockets = c.type === 'esp32' ? 30 : 2;
-        if (!Array.isArray(c.holeRefs) || c.holeRefs.length !== sockets) throw new Error(sockets === 2 ? 'Components need two socket connections.' : 'An ESP32 needs 30 socket connections.');
+        const sockets = PIN_COUNT[c.type];
+        if (!Array.isArray(c.holeRefs) || c.holeRefs.length !== sockets) throw new Error(`A ${c.type} needs ${sockets} socket connections.`);
         result.holeRefs = c.holeRefs.map(hole);
       }
       if (c.resistance !== undefined) {
@@ -57,7 +59,7 @@
           result[side + 'PinIdx'] = -1;
         } else {
           const index = w[side + 'CompIdx'], pin = w[side + 'PinIdx'];
-          const pins = components[index]?.type === 'esp32' ? 30 : 2;
+          const pins = PIN_COUNT[components[index]?.type] ?? 2;
           if (!Number.isInteger(index) || index < 0 || index >= components.length || !Number.isInteger(pin) || pin < 0 || pin >= pins) throw new Error('Wire references a missing component pin.');
           result[side + 'Hole'] = null;
           result[side + 'CompIdx'] = index;

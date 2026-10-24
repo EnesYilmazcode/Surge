@@ -18,6 +18,16 @@
       g.children = g.children.filter(c => !c.userData.accessory);
       return g;
     },
+    capacitor:     () => App.buildPart('capacitor', [{ x: -0.4, z: 0 }, { x: 0.4, z: 0 }]).group,
+    potentiometer: () => App.buildPart('potentiometer', [{ x: -0.4, z: 0 }, { x: 0, z: 0 }, { x: 0.4, z: 0 }]).group,
+    servo:         () => App.buildPart('servo', [{ x: -0.4, z: 0 }, { x: 0, z: 0 }, { x: 0.4, z: 0 }]).group,
+    ultrasonic:    () => App.buildPart('ultrasonic', [-0.6, -0.2, 0.2, 0.6].map(x => ({ x, z: 0 }))).group,
+    transistor:    () => App.buildPart('transistor', [{ x: -0.4, z: 0 }, { x: 0, z: 0 }, { x: 0.4, z: 0 }]).group,
+    fan:           () => App.buildPart('fan', [{ x: -0.4, z: 0 }, { x: 0.4, z: 0 }]).group,
+    seg7:          () => {
+      const xs = [-0.8, -0.4, 0, 0.4, 0.8];
+      return App.buildPart('seg7', [...xs.map(x => ({ x, z: -0.51 })), ...xs.slice().reverse().map(x => ({ x, z: 0.51 }))]).group;
+    },
     wire:     () => {
       const g = new THREE.Group();
       g.add(App.buildWire(new THREE.Vector3(-0.9, 0, 0.25), new THREE.Vector3(0.9, 0, -0.25), 0xef4444));

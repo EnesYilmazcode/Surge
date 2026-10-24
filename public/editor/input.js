@@ -87,13 +87,15 @@
     // ── Ghost of the part being placed ──────────────────────
     let ghost = null, ghostKey = '';
 
-    function setGhost(type, holeA, holeB, ok) {
-      const key = type + '|' + (holeA ? holeA.idx : 'x') + '|' + (holeB ? holeB.idx : 'x') + '|' + ok;
+    // `holes` is set for the newer parts, which take a list of pins.
+    function setGhost(type, holeA, holeB, ok, holes) {
+      const at = holes ? holes.map(h => h.idx).join(',') : (holeA ? holeA.idx : 'x') + '|' + (holeB ? holeB.idx : 'x');
+      const key = type + '|' + at + '|' + ok;
       if (key === ghostKey) return;
       clearGhost();
       ghostKey = key;
       if (!holeA || !holeB) return;
-      ghost = App.buildPreview(type, holeA, holeB, ok);
+      ghost = holes ? App.buildPartPreview(type, holes, ok) : App.buildPreview(type, holeA, holeB, ok);
       if (ghost) scene.add(ghost);
     }
 
@@ -120,6 +122,7 @@
     function footprint(type) {
       const holeA = holeUnderRay();
       if (!holeA) return null;
+      if (App.PART_SPECS[type]) return App.partFootprint(type, holeA, state.placementRotation);
       if (type === 'esp32') return esp32Footprint(holeA);
       const span  = SPANS()[type] || App.RESISTOR_SPAN;
       const holeB = state.breadboard.getSpanHole(holeA, span, state.placementRotation);
@@ -226,9 +229,9 @@
         const color = fp.ok ? GOOD : BAD;
         mark(markA, fp.holeA, color);
         mark(markB, fp.holeB, color);
-        setGhost(type, fp.holeA, fp.holeB, fp.ok);
+        setGhost(type, fp.holeA, fp.holeB, fp.ok, App.PART_SPECS[type] ? fp.holes : null);
         const a = App.formatHole(fp.holeA);
-        const span = fp.holes
+        const span = type === 'esp32'
           ? `${a}–${App.formatHole(fp.holes[14])} · ${App.formatHole(fp.holeB)}–${App.formatHole(fp.holes[29])}`
           : `${a} → ${fp.holeB ? App.formatHole(fp.holeB) : ''}`;
         label(fp.holeB ? `${span}${fp.ok ? '' : '  ·  ' + fp.why}` : `${a}  ·  no room`);
@@ -319,6 +322,7 @@
         const fp = footprint(type);
         if (!fp || !fp.holeB) return;
         if (!fp.ok) { App.setHint(`Can't place here: ${fp.why}`, 2000); return; }
+        if (App.PART_SPECS[type]) App.placePart(type, fp.holes);
         if (type === 'resistor') App.placeResistor(fp.holeA, fp.holeB);
         if (type === 'led')      App.placeLED(fp.holeA, fp.holeB);
         if (type === 'buzzer')   App.placeBuzzer(fp.holeA, fp.holeB);

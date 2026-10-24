@@ -1093,6 +1093,7 @@
   App.buildBuzzer   = buildBuzzer;
   App.buildButton   = buildButton;
   App.buildESP32    = buildESP32;
+  App.ghostify      = ghostify;
   App.buildWire     = buildWire;
   App.buildPreview  = buildPreview;
   App.ghostify      = ghostify;

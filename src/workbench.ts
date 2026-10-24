@@ -39,7 +39,7 @@ async function loadScript(name: string) {
 }
 
 async function boot() {
-  const modules = ['board-model', 'scene', 'board', 'parts', 'input', 'solver', 'simulation', 'project-format', 'code', 'editor', 'inspector', 'chat', 'thumbs', 'projects']
+  const modules = ['board-model', 'scene', 'board', 'parts', 'parts-more', 'input', 'solver', 'simulation', 'project-format', 'code', 'editor', 'inspector', 'chat', 'thumbs', 'projects']
   if (home) modules.push('stage', 'home')
   // Fetch the modules together. Scripts added with async = false still run in order.
   await Promise.all(modules.map(loadScript))

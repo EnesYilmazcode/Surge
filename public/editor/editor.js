@@ -421,6 +421,60 @@
     refreshCounts();
   };
 
+  // ── Newer parts: laid out from the hovered hole, one row (or two, for the
+  //    7-segment display). Their models live in parts-more.js.
+  App.partLayout = function (type, hover, rotation) {
+    const spec = App.PART_SPECS[type];
+    const bb = state.breadboard, dir = rotation === 0 ? 1 : -1;
+    let holes;
+    if (spec.dip) {
+      const cols = [0, 1, 2, 3, 4].map(i => hover.col + dir * i);
+      holes = [...cols.map(c => bb.getHole(c, 'e')), ...cols.slice().reverse().map(c => bb.getHole(c, 'f'))];
+    } else {
+      holes = Array.from({ length: spec.pins }, (_, i) => bb.getHole(hover.col + dir * i * spec.step, hover.row));
+    }
+    return holes.every(Boolean) ? holes : null;
+  };
+
+  App.partFootprint = function (type, hover, rotation) {
+    const holes = App.partLayout(type, hover, rotation);
+    if (!holes) return { holes: null, holeA: hover, holeB: null, ok: false, why: 'no room' };
+    const taken = App.occupiedKeys();
+    const inRails = h => state.breadboard.RAIL_ROWS.includes(h.row);
+    let ok = true, why = '';
+    if (holes.some(inRails)) { ok = false; why = 'parts go in rows a to j'; }
+    else if (holes.some(h => taken.has(h.row + ':' + h.col))) { ok = false; why = 'a hole is taken'; }
+    else if (holes.some(h => App.underBoard(h))) { ok = false; why = 'it sits under an ESP32'; }
+    else if (App.partOverlaps(type, holes)) { ok = false; why = 'it would sit on another part'; }
+    return { holeA: holes[0], holeB: holes[holes.length - 1], holes, ok, why };
+  };
+
+  App.partOverlaps = function (type, holes) {
+    const probe = App.buildPart(type, holes).group;
+    const box = bodyBox(probe, new THREE.Box3());
+    App.disposeGroup(probe);
+    return state.components.some(c => {
+      if (!c.holeRefs) return false;
+      const other = placedBox(c.group);
+      return box.max.x > other.min.x && box.min.x < other.max.x &&
+             box.max.z > other.min.z && box.min.z < other.max.z;
+    });
+  };
+
+  App.placePart = function (type, holes, values) {
+    pushHistory();
+    const { group, pins } = App.buildPart(type, holes);
+    App.scene.add(group);
+    const record = {
+      type, group, pins, pinMeshes: [], values: App.componentValues(type, values),
+      holeRefs: holes.map(h => ({ col: h.col, row: h.row })),
+    };
+    App.snapIn(group, 1.1);
+    state.components.push(record);
+    refreshCounts();
+    return record;
+  };
+
   // Holes under an ESP32's body are covered by the board, so no wire can
   // reach them: the rows between its two headers, within its length.
   const UNDER_ROWS = new Set(['c', 'd', 'e', 'f', 'g', 'h']);
@@ -845,6 +899,9 @@
         const hA = bb.getHole(c.holeRefs[0].col, c.holeRefs[0].row);
         const hB = bb.getHole(c.holeRefs[15].col, c.holeRefs[15].row);
         if (hA && hB) App.placeESP32(hA, hB, c.values);
+      } else if (App.PART_SPECS[c.type] && c.holeRefs?.length === App.PART_SPECS[c.type].pins) {
+        const holes = c.holeRefs.map(r => bb.getHole(r.col, r.row));
+        if (holes.every(Boolean)) App.placePart(c.type, holes, c.values);
       } else if (c.type === 'battery' && c.position) {
         App.placeBattery(c.position.x, c.position.z, c.values);
       }
