@@ -15,3 +15,11 @@ html.hero,
 html.hero body {
   overflow: hidden;
 }
+
+/* The loop fades the board out before it clears and starts again. */
+html.hero #canvas-wrap {
+  transition: opacity 0.8s ease;
+}
+html.hero.fade #canvas-wrap {
+  opacity: 0;
+}

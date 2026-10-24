@@ -147,6 +147,8 @@
       phase('hold');
       await wait(HOLD_MS);
       App.stopSimulation();
+      document.documentElement.classList.add('fade');
+      await wait(800);
     }
   }
 
