@@ -353,7 +353,6 @@
         state.placementRotation = state.placementRotation === 0 ? 1 : 0;
         clearGhost();
         if (lastEvent) handleHover(lastEvent);
-        App.setHint(state.placementRotation === 0 ? 'Along a row' : 'Along a column', 1200);
         return;
       }
 

@@ -169,10 +169,6 @@
       });
     });
 
-    document.querySelectorAll('.mode-btn[data-mode]').forEach(btn => {
-      btn.addEventListener('click', () => setMode(btn.dataset.mode));
-    });
-
     document.querySelectorAll('.swatch').forEach(sw => {
       sw.addEventListener('click', () => {
         document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
@@ -195,8 +191,6 @@
     if (m !== 'select') App.deselect();
     state.mode = m;
 
-    document.querySelectorAll('.mode-btn[data-mode]').forEach(b =>
-      b.classList.toggle('active', b.dataset.mode === m));
     document.querySelectorAll('.comp-item').forEach(b => {
       b.classList.toggle('active',
         (m === 'place' && b.dataset.type === state.pickedType) ||
