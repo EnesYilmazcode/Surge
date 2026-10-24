@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/editor/chat.css" />
   <link rel="stylesheet" href="/editor/projects.css" />
   <link rel="stylesheet" href="/editor/scene.css" />
+  <link rel="stylesheet" href="/editor/code.css" />
   <script>if (/[?&]showcase\b/.test(location.search)) document.documentElement.classList.add('scene');</script>
 </head>
 <body>
@@ -36,6 +37,17 @@
     </div>
 
     <div class="topbar-center">
+      <div class="seg" role="group" aria-label="View">
+        <button class="mode-btn active" data-view="board" title="Board view">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M7 13h.01M11 13h.01M15 13h.01"/></svg>
+          Board
+        </button>
+        <button class="mode-btn" data-view="code" title="Code view">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-5 5 5 5"/><path d="m16 7 5 5-5 5"/></svg>
+          Code
+        </button>
+      </div>
+      <div class="run-group">
       <button class="btn-simulate" id="sim-run-btn" onclick="App.runSimulation()" title="Run the circuit">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
         Run
@@ -44,6 +56,7 @@
         <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
         Stop
       </button>
+      </div>
     </div>
 
     <div class="topbar-actions">
@@ -156,6 +169,27 @@
         </button>
       </div>
     </div>
+
+    <!-- CODE VIEW -->
+    <section id="code-view" hidden aria-label="ESP32 code editor">
+      <div class="code-tabs">
+        <span class="code-tab">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>
+          sketch.ino
+        </span>
+      </div>
+      <div class="code-main">
+        <div class="code-gutter" aria-hidden="true"><div class="code-gutter-inner"></div></div>
+        <div class="code-stack">
+          <pre class="code-highlight" aria-hidden="true"><code></code></pre>
+          <textarea class="code-input" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-label="Sketch source"></textarea>
+        </div>
+      </div>
+      <div class="code-status">
+        <span>ESP32 · Arduino C++</span>
+        <span id="code-pos">Ln 1, Col 1</span>
+      </div>
+    </section>
 
     <!-- Surge PANEL -->
     <div id="surge-panel">
