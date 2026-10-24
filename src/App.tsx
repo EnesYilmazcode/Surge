@@ -1,6 +1,5 @@
 import { Box, CheckCircle2, ChevronDown, CircleHelp, Download, FolderOpen, MousePointer2, Pause, Play, Plus, RotateCcw, Save, Search, Undo2, Redo2, ZoomIn } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { planCircuit } from './agent/planner'
 import AgentPanel from './components/AgentPanel'
 import CircuitScene from './components/CircuitScene'
 import Inspector from './components/Inspector'
@@ -9,8 +8,6 @@ import { nearestHole } from './data/breadboard'
 import { MAX_PROJECT_BYTES, parseProject, projectFilename, serializeProject, validateDesign } from './data/project-file'
 import { simulateCircuit } from './engine/simulator'
 import type { CircuitComponent, CircuitDesign, CircuitLayer, ComponentKind } from './types/circuit'
-
-const initialSteps = ['Parsed design requirements', 'Selected component topology', 'Validated electrical rules', 'Ready for simulation']
 
 function loadSavedDesign(): CircuitDesign {
   try {
@@ -26,14 +23,10 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>('u1')
   const [simulating, setSimulating] = useState(false)
   const [activeLayers, setActiveLayers] = useState<Record<CircuitLayer, boolean>>({ power: true, signal: true, ground: true })
-  const [isThinking, setIsThinking] = useState(false)
-  const [summary, setSummary] = useState('I built an ambient light controller with eight parts. The comparator threshold is stable and the output is ready to simulate.')
-  const [steps, setSteps] = useState(initialSteps)
   const [saved, setSaved] = useState(true)
   const [search, setSearch] = useState('')
   const [fileNotice, setFileNotice] = useState<{ message: string; error: boolean } | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
-  const agentRun = useRef(0)
   const [placementKind, setPlacementKind] = useState<ComponentKind | null>(null)
 
   useEffect(() => {
@@ -70,23 +63,6 @@ export default function App() {
     setSaved(false)
   }
 
-  const runAgent = (prompt: string) => {
-    if (isThinking) return
-    const run = ++agentRun.current
-    setIsThinking(true)
-    setSteps(['Interpreting your request', 'Selecting a topology'])
-    window.setTimeout(() => {
-      if (run !== agentRun.current) return
-      const plan = planCircuit(prompt)
-      setDesign(plan.design)
-      setSelectedId(plan.design.components.find((item) => item.kind === 'ic')?.id ?? plan.design.components[0]?.id ?? null)
-      setSummary(plan.summary)
-      setSteps(plan.steps)
-      setIsThinking(false)
-      setSaved(false)
-    }, 850)
-  }
-
   const saveDesign = () => {
     try {
       window.localStorage.setItem('surge:circuit', JSON.stringify(design))
@@ -117,14 +93,10 @@ export default function App() {
     try {
       if (file.size > MAX_PROJECT_BYTES) throw new Error('Choose a circuit file smaller than 2 MB.')
       const imported = parseProject(await file.text())
-      ++agentRun.current
-      setIsThinking(false)
       setDesign(imported)
       setSelectedId(imported.components[0]?.id ?? null)
       setSimulating(false)
       setSaved(false)
-      setSummary(`Opened ${imported.name || 'untitled circuit'} with ${imported.components.length} components and ${imported.wires.length} connections.`)
-      setSteps(['Imported circuit file', 'Validated components and connections'])
       setFileNotice({ message: 'Circuit opened. Save to keep it in this browser.', error: false })
     } catch (error) {
       setFileNotice({ message: error instanceof Error ? error.message : 'Unable to open circuit.', error: true })
@@ -193,7 +165,7 @@ export default function App() {
       </section>
 
       <aside className="right-rail chat-rail">
-        <AgentPanel isThinking={isThinking} lastSummary={summary} steps={steps} onSubmit={runAgent} />
+        <AgentPanel design={design} onApply={(next) => { setDesign(next); setSaved(false); setSimulating(false); setPlacementKind(null); setSelectedId(next.components[0]?.id ?? null) }} />
       </aside>
     </div>
   </main>

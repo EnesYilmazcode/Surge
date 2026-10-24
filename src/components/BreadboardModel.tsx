@@ -47,7 +47,7 @@ function createBoardTexture() {
   }
   context.fillStyle = '#918675'
   context.font = '600 19px ui-monospace, monospace'
-  context.fillText('SURGE  /  400 SERIES', x(0), z(3.52))
+  context.fillText('SURGE  /  30 COLUMN BREADBOARD', x(0), z(3.52))
   const texture = new CanvasTexture(canvas)
   texture.colorSpace = SRGBColorSpace
   texture.anisotropy = 4

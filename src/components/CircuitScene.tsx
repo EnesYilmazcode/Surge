@@ -38,7 +38,7 @@ function PartShape({ component, selected, simulating, onSelect }: { component: C
   const group = useRef<Group>(null)
   const pulse = useRef<Mesh>(null)
   useFrame(({ clock }) => {
-    if (group.current && selected) group.current.position.y = 0.05 + Math.sin(clock.elapsedTime * 3) * 0.025
+    if (group.current) group.current.position.y = component.position[1] + (selected ? 0.05 + Math.sin(clock.elapsedTime * 3) * 0.025 : 0)
     if (pulse.current && component.kind === 'led') {
       const strength = simulating ? 0.65 + Math.sin(clock.elapsedTime * 5) * 0.3 : 0.15
       const material = pulse.current.material as import('three').MeshStandardMaterial

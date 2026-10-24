@@ -1,4 +1,4 @@
-import { Activity, Box, ChevronRight, Layers3, SlidersHorizontal, Trash2, Zap } from 'lucide-react'
+import { Activity, Box, Layers3, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { CircuitComponent, CircuitLayer, SimulationResult } from '../types/circuit'
 
 interface InspectorProps {
@@ -48,15 +48,16 @@ export default function Inspector({ selected, result, activeLayers, onToggleLaye
     </section>
 
     <section className="panel engine-panel">
-      <div className="panel-title-row"><div className="panel-title"><Activity size={15} /> Engine</div><span className={`status-tag ${result.status}`}>{result.status}</span></div>
+      <div className="panel-title-row"><div className="panel-title"><Activity size={15} /> Estimates</div><span className={`status-tag ${result.status}`}>{result.status}</span></div>
       <div className="metric-feature"><span>Output</span><strong>{result.voltageOut.toFixed(2)} <small>V</small></strong><div className="sparkline"><i /><i /><i /><i /><i /><i /><i /></div></div>
       <div className="metric-grid">
         <div><span>Current</span><strong>{result.current}<small> mA</small></strong></div>
-        <div><span>Efficiency</span><strong>{result.efficiency}<small>%</small></strong></div>
+        <div><span>Input</span><strong>{result.voltageIn}<small> V</small></strong></div>
         <div><span>Power</span><strong>{result.power}<small> W</small></strong></div>
         <div><span>Nodes</span><strong>{result.nodeCount}</strong></div>
       </div>
-      <button className="engine-detail"><Zap size={14} /> Simulation report <ChevronRight size={14} /></button>
+      <p className="estimate-note">Rough component estimates. Pin-level breadboard simulation is not yet connected.</p>
+      {result.warnings.map((warning) => <p key={warning} className="estimate-warning">{warning}</p>)}
     </section>
   </div>
 }
