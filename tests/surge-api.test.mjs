@@ -92,3 +92,18 @@ test('depleted provider credits show an actionable billing error', async () => {
     assert.ok(!body.error.includes('private provider billing details'))
   })
 })
+
+test('workbench chat returns validated pin-level actions through the private API', async () => {
+  const proposal = { reply: 'Add a battery and connect its positive terminal to the top rail.', actions: [
+    { tool: 'place_battery' },
+    { tool: 'add_wire', from: 'battery_0_pin0', to: 'tp_3', color: 'red' },
+  ] }
+  await withServer({ apiKey: 'test-private-key', fetch: async () => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(proposal) }] } }] }) }, async (url) => {
+    const response = await fetch(url + '/api/surge/workbench', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'Add a battery', markdown: 'Empty board', board: { components: [], wires: [] }, history: [] }),
+    })
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), proposal)
+  })
+})

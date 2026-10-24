@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 import { applyCircuitActions, parseAgentReply } from '../src/agent/actions.ts'
 import { validateDesign } from '../src/data/project-file.ts'
+import { createWorkbenchHandler } from './workbench-api.ts'
 
 export interface SurgeOptions { apiKey?: string; model?: string; fetch?: typeof globalThis.fetch }
 export const DEFAULT_MODEL = 'gemini-2.5-flash'
@@ -63,11 +64,12 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
 }
 
 export function createSurgeHandler(options: SurgeOptions) {
+  const workbench = createWorkbenchHandler(options)
   const model = options.model || DEFAULT_MODEL
   const fetcher = options.fetch || globalThis.fetch
   return async (request: IncomingMessage, response: ServerResponse, next = () => json(response, 404, { error: 'Not found.' })) => {
     const path = request.url?.split('?')[0]
-    if (path !== '/api/surge/status' && path !== '/api/surge/chat') { next(); return }
+    if (path !== '/api/surge/status' && path !== '/api/surge/chat' && path !== '/api/surge/workbench') { next(); return }
     if (!/^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(request.headers.host ?? '')) {
       json(response, 403, { error: 'Use the local editor address to reach Surge.' }); return
     }
@@ -75,6 +77,7 @@ export function createSurgeHandler(options: SurgeOptions) {
     if (origin && origin !== `http://${request.headers.host}`) {
       json(response, 403, { error: 'Only requests from this local editor are allowed.' }); return
     }
+    if (path === '/api/surge/workbench') { await workbench(request, response); return }
     if (path === '/api/surge/status' && request.method === 'GET') {
       json(response, 200, { configured: Boolean(options.apiKey), provider: 'Gemini', model }); return
     }
