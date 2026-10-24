@@ -37,31 +37,38 @@ function nearest(stops: number[]): number {
   return best
 }
 
-// One move at a time. Released by a timer, not by Lenis's onComplete, because
-// a wheel event can cut a Lenis move short without calling it.
-const STEP_MS = 1100
-let busy = false
+// Checkpoints are reached one after another. While the page is moving toward
+// one, the next step counts from that target, so a long scroll keeps going at a
+// steady pace instead of stalling on every stop. Lenis does the easing.
+const STEP_MS = 900
+const GAP_MS = 700                 // while the wheel keeps turning, one step per gap
+let moveId = 0
+let moving = false
+let targetIndex = 0
+let lastStepAt = 0
 
-function goTo(y: number) {
+function goTo(index: number, stops: number[]) {
+  targetIndex = index
   if (lenis) {
-    busy = true
-    setTimeout(() => { busy = false }, STEP_MS + 80)
-    lenis.scrollTo(y, { duration: STEP_MS / 1000 })
+    const id = ++moveId
+    moving = true
+    setTimeout(() => { if (id === moveId) moving = false }, STEP_MS + 80)
+    lenis.scrollTo(stops[index], { duration: STEP_MS / 1000 })
   } else {
-    window.scrollTo(0, y)
+    window.scrollTo(0, stops[index])
   }
 }
 
-// Move one checkpoint up or down, and stop there.
+// Move one checkpoint up or down.
 function step(dir: number) {
   const stops = checkpoints()
-  const i = nearest(stops)
-  const j = Math.min(stops.length - 1, Math.max(0, i + dir))
-  if (j !== i) goTo(stops[j])
+  const base = moving ? targetIndex : nearest(stops)
+  const j = Math.min(stops.length - 1, Math.max(0, base + dir))
+  if (j !== base) goTo(j, stops)
 }
 
-// A wheel gesture is a burst of wheel events. Trackpad momentum keeps the burst
-// going, so the next checkpoint only counts after a short pause.
+// A wheel gesture is a burst of wheel events. A new burst always takes a step,
+// and a burst that keeps going takes another step each GAP_MS.
 let lastWheel = 0
 if (!touchOnly) {
   // Capture phase on window, so this runs before Lenis's own wheel listener and
@@ -73,8 +80,11 @@ if (!touchOnly) {
     const now = performance.now()
     const newGesture = now - lastWheel > 280
     lastWheel = now
-    if (busy || !newGesture || Math.abs(e.deltaY) < 1) return
-    step(Math.sign(e.deltaY))
+    if (Math.abs(e.deltaY) < 1) return
+    if (newGesture || now - lastStepAt > GAP_MS) {
+      lastStepAt = now
+      step(Math.sign(e.deltaY))
+    }
   }, { passive: false, capture: true })
 
   window.addEventListener('keydown', e => {
@@ -83,13 +93,11 @@ if (!touchOnly) {
     if (e.key === ' ') dir = e.shiftKey ? -1 : 1
     if (dir === 0 && e.key !== 'Home' && e.key !== 'End') return
     e.preventDefault()
-    if (busy) return
-    if (e.key === 'Home' || e.key === 'End') {
-      const stops = checkpoints()
-      goTo(e.key === 'Home' ? stops[0] : stops[stops.length - 1])
-    } else {
-      step(dir)
-    }
+    if (moving) return
+    const stops = checkpoints()
+    if (e.key === 'Home') goTo(0, stops)
+    else if (e.key === 'End') goTo(stops.length - 1, stops)
+    else step(dir)
   })
 }
 
