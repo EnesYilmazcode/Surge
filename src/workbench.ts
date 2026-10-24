@@ -1,13 +1,13 @@
 import { workbenchThree } from './workbench-three'
 import type { SketchOptions } from './sketch-runtime'
 
-// The homepage scene is this same editor opened with ?showcase: the board
-// alone, driven by the page's scroll. It never saves anything. The flag keeps
-// its old name, isHero, because the editor checks it before saving.
-const showcase = new URLSearchParams(window.location.search).has('showcase')
+// The homepage scene is this same editor opened with ?home: the demo circuit on
+// the bench, with nothing to scroll. It never saves anything. The flag keeps its
+// old name, isHero, because the editor checks it before saving.
+const home = new URLSearchParams(window.location.search).has('home')
 ;(window as unknown as Record<string, unknown>).THREE = workbenchThree
 ;(window as unknown as Record<string, unknown>).App = {
-  isHero: showcase,
+  isHero: home,
   // Runs the open sketch and returns its pin changes. The interpreter loads on first use.
   async runSketch(sketch: string, options?: SketchOptions) {
     const { runSketch, levelsAt } = await import('./sketch-runtime')
@@ -40,7 +40,7 @@ async function loadScript(name: string) {
 
 async function boot() {
   const modules = ['board-model', 'scene', 'board', 'parts', 'input', 'solver', 'simulation', 'project-format', 'editor', 'code', 'inspector', 'chat', 'thumbs', 'projects']
-  if (showcase) modules.push('stage', 'showcase')
+  if (home) modules.push('stage', 'home')
   // Fetch the modules together. Scripts added with async = false still run in order.
   await Promise.all(modules.map(loadScript))
 }

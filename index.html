@@ -1,402 +1,94 @@
 <!DOCTYPE html>
-<html lang="en" class="no-js">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Surge: 3D circuit workbench</title>
-  <meta name="description" content="A 3D breadboard in your browser. Place real parts, wire them up, and press Run." />
-  <meta name="theme-color" content="#1A1814" />
+  <meta name="description" content="A 3D breadboard in your browser. Build a circuit, then press Run." />
+  <meta name="theme-color" content="#23262b" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Surge: 3D circuit workbench" />
-  <meta property="og:description" content="Place real parts on a 3D breadboard, wire them up, and press Run." />
+  <meta property="og:description" content="A 3D breadboard in your browser. Build a circuit, then press Run." />
   <meta property="og:url" content="https://surge-flow.web.app/" />
   <link rel="icon" href="/editor/mark.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    :root {
-      --night:      #1A1814;
-      --ink:        #F4F1EA;
-      --ink-2:      #D8D2C7;
-      --amber:      #F59E0B;
-      --amber-ink:  #B45309;
-      --amber-deep: #92400E;
-      --edge:       clamp(1.25rem, 3.2vw, 3.5rem);
-      --head:       'Space Grotesk', system-ui, sans-serif;
-      --body:       'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
-
     html, body {
-      background: var(--night);
-      color: var(--ink);
-      font-family: var(--body);
-      -webkit-font-smoothing: antialiased;
-      /* The page is a scene to look at, not a document to select from. */
+      height: 100%;
+      overflow: hidden;
+      background: #23262b;
+      color: #F4F1EA;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       -webkit-user-select: none;
       user-select: none;
-      -webkit-touch-callout: none;
     }
 
-    /* No scrollbar: the page scrolls by wheel, keys or touch. */
-    html { scrollbar-width: none; }
-    html::-webkit-scrollbar { display: none; }
-
-    a { color: inherit; }
-
-    :focus-visible {
-      outline: 2px solid var(--amber);
-      outline-offset: 3px;
-      border-radius: 6px;
-    }
-
-    .skip {
-      position: absolute; left: var(--edge); top: -3rem; z-index: 300;
-      background: var(--ink); color: var(--night);
-      padding: 0.5rem 0.9rem; border-radius: 8px;
-      font-weight: 600; font-size: 0.875rem; text-decoration: none;
-    }
-    .skip:focus { top: 0.75rem; }
-
-    /* ── The scene stays fixed while the text scrolls over it ── */
-    .stage {
+    /* The scene fills the page. There is nothing to scroll. */
+    .scene {
       position: fixed;
-      inset: 0;
-      z-index: 0;
-      background: #23262b;
-      transition: opacity 0.6s ease;
-    }
-    .stage iframe {
-      position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       border: 0;
       display: block;
-      pointer-events: none;
       opacity: 0;
-      transition: opacity 0.9s ease;
+      transition: opacity 1s ease;
     }
-    .is-loaded .stage iframe { opacity: 1; }
-    /* A light wash so the scene stays a little back from the text. */
-    .stage::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background: radial-gradient(ellipse at 70% 45%, rgba(20,18,15,0) 0%, rgba(20,18,15,0.45) 85%);
-    }
-    /* The closing section shows the circuit field instead of the scene. */
-    .grid-on .stage { opacity: 0; }
+    .is-loaded .scene { opacity: 1; }
 
-    /* The field of circuits, behind the closing text. */
-    #circuit-grid {
+    /* A small top bar: the name, and a way into the editor. */
+    .top {
       position: fixed;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      z-index: 0;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.8s ease;
-    }
-    .grid-on #circuit-grid { opacity: 1; }
-
-    /* ── Top bar, transparent over the scene ─────────────── */
-    .nav {
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      z-index: 100;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      padding: 1.1rem var(--edge);
-      background: linear-gradient(180deg, rgba(20,18,15,0.78) 0%, rgba(20,18,15,0) 100%);
-      pointer-events: none;
-    }
-    .nav > * { pointer-events: auto; }
-    .brand {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-family: var(--head);
-      font-size: 1.125rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      text-decoration: none;
-    }
-    .brand img { display: block; border-radius: 7px; }
-    .nav-links { display: flex; align-items: center; gap: 0.5rem; }
-    .nav-link {
-      font-size: 0.9375rem;
-      font-weight: 500;
-      color: var(--ink-2);
-      text-decoration: none;
-      padding: 0.45rem 0.75rem;
-      border-radius: 8px;
-    }
-    .nav-link:hover { color: var(--ink); }
-
-    /* ── Buttons ─────────────────────────────────────────── */
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 3rem;
-      padding: 0 1.4rem;
-      border-radius: 10px;
-      border: 1px solid transparent;
-      font-family: var(--head);
-      font-size: 1.0625rem;
-      font-weight: 600;
-      letter-spacing: -0.01em;
-      text-decoration: none;
-      white-space: nowrap;
-      transition: background-color 0.15s, border-color 0.15s;
-    }
-    .btn-primary {
-      background: var(--amber-ink);
-      color: #fff;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 1px 2px rgba(0,0,0,0.3);
-    }
-    .btn-primary:hover { background: var(--amber-deep); }
-    .btn-ghost {
-      background: rgba(20,18,15,0.35);
-      color: var(--ink);
-      border-color: rgba(244,241,234,0.32);
-    }
-    .btn-ghost:hover { border-color: rgba(244,241,234,0.6); background: rgba(20,18,15,0.5); }
-
-    /* ── The page: one screen per checkpoint, text over the scene ─ */
-    .track {
-      position: relative;
-      z-index: 1;
-    }
-    .beat {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      padding: 6rem var(--edge);
-    }
-    .beat-left  { justify-content: flex-start; }
-    .beat-right { justify-content: flex-end; }
-    .beat-center { justify-content: center; text-align: center; }
-
-    .card {
-      max-width: 31rem;
-      padding: 1.1rem 1.5rem;
-      border-radius: 14px;
-      background: rgba(20,18,15,0.6);
-    }
-    .card h2 {
-      font-family: var(--head);
-      font-size: clamp(1.75rem, 2.2vw + 1rem, 2.75rem);
-      font-weight: 700;
-      line-height: 1.06;
-      letter-spacing: -0.035em;
-      text-wrap: balance;
-    }
-
-    .intro h1 {
-      font-family: var(--head);
-      font-size: clamp(2.6rem, 4.6vw + 1rem, 5.25rem);
-      font-weight: 700;
-      line-height: 1.02;
-      letter-spacing: -0.045em;
-      text-wrap: balance;
-      text-shadow: 0 2px 24px rgba(0,0,0,0.35);
-    }
-    .lede {
-      margin-top: 1.25rem;
-      max-width: 30rem;
-      font-size: clamp(1.05rem, 0.4vw + 0.95rem, 1.2rem);
-      line-height: 1.55;
-      color: var(--ink-2);
-      text-shadow: 0 1px 12px rgba(0,0,0,0.5);
-    }
-    .hero-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-      margin-top: 2rem;
-    }
-
-    .closing h2 {
-      font-size: clamp(2.2rem, 3vw + 1rem, 3.75rem);
-    }
-    .closing .hero-actions { justify-content: center; }
-
-    /* ── Press Run: a pointing hand presses the play button, and the LED lights ── */
-    .run-overlay {
-      position: fixed;
-      left: 50%;
-      top: 62%;
-      width: 96px;
-      height: 96px;
-      margin: -48px 0 0 -48px;
-      z-index: 60;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.35s ease;
-    }
-    .run-overlay.on { opacity: 1; }
-    .run-overlay .play {
-      position: absolute;
-      inset: 0;
-      width: 96px;
-      height: 96px;
-      display: grid;
-      place-items: center;
-      border: 0;
-      border-radius: 50%;
-      color: #fff;
-      background: radial-gradient(circle at 35% 30%, #4ade80, #16a34a);
-      box-shadow: 0 10px 28px rgba(22,163,74,0.5), inset 0 1px 0 rgba(255,255,255,0.35);
-      transition: transform 0.12s ease, background 0.25s ease, box-shadow 0.25s ease;
-    }
-    .run-overlay .play svg { margin-left: 6px; }
-    .run-overlay .play.pressed { transform: scale(0.92); }
-    .run-overlay .play.lit {
-      background: radial-gradient(circle at 35% 30%, #bbf7d0, #15803d);
-      box-shadow: 0 0 0 8px rgba(74,222,128,0.18), 0 10px 28px rgba(22,163,74,0.6);
-    }
-    .run-overlay .pointer {
-      position: absolute;
-      left: 0;
       top: 0;
-      width: 64px;
-      height: 77px;
-      transform: translate(300px, 280px);
-      opacity: 0;
-      transition: transform 1.05s cubic-bezier(0.3, 0.1, 0.2, 1), opacity 0.25s ease;
-      filter: drop-shadow(2px 3px 0 rgba(0,0,0,0.45));
+      left: 0;
+      right: 0;
+      z-index: 2;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.1rem 1.4rem;
+      pointer-events: none;
     }
-    .run-overlay.on .pointer { opacity: 1; transform: translate(18px, 46px); }
-    .run-overlay.press .pointer { transform: translate(18px, 46px) scale(0.9); transition: transform 0.1s ease; }
-    .run-overlay.lit .pointer { opacity: 0; transition: opacity 0.4s ease; }
-
-    /* ── Motion: the text rises in as it enters ───────────── */
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(14px); }
-      to   { opacity: 1; transform: none; }
+    .top a {
+      pointer-events: auto;
+      color: #F4F1EA;
+      text-decoration: none;
+      font-family: 'Space Grotesk', system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 0.95rem;
     }
-    @media (prefers-reduced-motion: no-preference) {
-      .card.in { animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+    .brand { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 1.05rem !important; }
+    .brand img { display: block; width: 26px; height: 26px; border-radius: 7px; }
+    .open { opacity: 0.75; transition: opacity 0.2s ease, color 0.2s ease; }
+    .open:hover { opacity: 1; color: #F59E0B; }
+    .open:focus-visible, .brand:focus-visible {
+      outline: 2px solid #F59E0B;
+      outline-offset: 3px;
+      border-radius: 6px;
     }
-    @media (prefers-reduced-motion: reduce) {
-      .stage iframe { transition-duration: 0.01ms; }
-    }
-
-    /* Touch screens scroll natively and stop at each section. */
-    @media (pointer: coarse) {
-      html { scroll-snap-type: y mandatory; }
-      .beat { scroll-snap-align: start; }
-    }
-
-    /* ── Credits ─────────────────────────────────────────── */
-    .credits {
-      position: relative;
-      z-index: 1;
-      text-align: center;
-      padding: 2rem var(--edge) 2.5rem;
-      font-size: 0.8125rem;
-      color: var(--ink-2);
-    }
-    .credits a { color: var(--ink-2); text-underline-offset: 3px; }
-    .credits a:hover { color: var(--amber); }
   </style>
 </head>
 <body>
-  <a class="skip" href="#copy">Skip to text</a>
+  <iframe class="scene" id="scene" src="app.html?home=1" title="A 3D breadboard with a circuit on it. A green button on the bench runs the circuit."></iframe>
 
-  <div class="stage" aria-hidden="true">
-    <iframe id="stage-frame" src="app.html?showcase=1" title="A 3D breadboard that builds a circuit as you scroll" tabindex="-1"></iframe>
-  </div>
-
-  <canvas id="circuit-grid" aria-hidden="true"></canvas>
-
-  <header class="nav">
-    <a href="/" class="brand">
-      <img src="/editor/mark.svg" width="28" height="28" alt="" />
+  <header class="top">
+    <a class="brand" href="/">
+      <img src="/editor/mark.svg" width="26" height="26" alt="" />
       Surge
     </a>
-    <nav class="nav-links" aria-label="Main">
-      <a href="https://github.com/EnesYilmazcode/Surge" class="nav-link" target="_blank" rel="noopener">GitHub</a>
-    </nav>
+    <a class="open" href="app.html">Open the editor</a>
   </header>
 
-  <main class="track">
-    <section class="beat intro" id="copy" aria-labelledby="headline">
-      <div class="card intro-copy">
-        <h1 id="headline">Snap a circuit together in 3D</h1>
-        <p class="lede">Place parts, wire them up, and press Run.</p>
-      </div>
-    </section>
-
-    <section class="beat beat-right">
-      <div class="card">
-        <h2>Start with an empty board</h2>
-      </div>
-    </section>
-
-    <section class="beat beat-left">
-      <div class="card">
-        <h2>Place real parts</h2>
-      </div>
-    </section>
-
-    <section class="beat beat-right">
-      <div class="card">
-        <h2>Wire it up</h2>
-      </div>
-    </section>
-
-    <section class="beat beat-left">
-      <div class="card">
-        <h2>Press Run</h2>
-      </div>
-    </section>
-
-    <section class="beat beat-center closing">
-      <div class="card">
-        <h2>Build it, then press Run.</h2>
-        <div class="hero-actions">
-          <a href="app.html" class="btn btn-primary">Open the editor</a>
-          <a href="app.html?demo" class="btn btn-ghost">Try the demo</a>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <div class="run-overlay" id="run-overlay" aria-hidden="true">
-    <button class="play" type="button" tabindex="-1">
-      <svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" focusable="false"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
-    </button>
-    <svg class="pointer" viewBox="0 0 14 17" width="64" height="77" shape-rendering="crispEdges" aria-hidden="true" focusable="false">
-      <g fill="#111">
-        <rect x="4" y="0" width="5" height="9"/>
-        <rect x="2" y="7" width="10" height="7"/>
-        <rect x="0" y="8" width="5" height="5"/>
-        <rect x="8" y="8" width="4" height="6"/>
-        <rect x="3" y="12" width="8" height="5"/>
-      </g>
-      <g fill="#fff">
-        <rect x="5" y="1" width="3" height="7"/>
-        <rect x="3" y="8" width="8" height="5"/>
-        <rect x="1" y="9" width="3" height="3"/>
-        <rect x="9" y="9" width="2" height="4"/>
-        <rect x="4" y="13" width="6" height="3"/>
-      </g>
-    </svg>
-  </div>
-
-  <footer class="credits">
-    By <a href="https://github.com/EnesYilmazcode" target="_blank" rel="noopener">Enes Yilmaz</a> and <a href="https://github.com/ColinL-code" target="_blank" rel="noopener">Colin Lee</a>
-  </footer>
-
-  <script type="module" src="/src/landing.ts"></script>
+  <script>
+    // The scene fades in once it has loaded.
+    const scene = document.getElementById('scene');
+    scene.addEventListener('load', () => {
+      setTimeout(() => document.documentElement.classList.add('is-loaded'), 300);
+    });
+  </script>
 </body>
 </html>

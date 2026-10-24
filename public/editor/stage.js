@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────
-//  stage.js — helpers for the homepage scene (showcase.js)
+//  stage.js — helpers for the homepage scene (home.js)
 //
 //  Tweens, the camera orbit, the amber contact ring, and placing saved parts
-//  and jumpers the way rebuildBoard does. Loaded only on ?showcase.
+//  and jumpers the way rebuildBoard does. Loaded only on ?home.
 // ─────────────────────────────────────────────────────────────
 
 (function (App) {
