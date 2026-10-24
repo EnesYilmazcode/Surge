@@ -45,6 +45,9 @@
     App.finishWire(to);
   }
 
+  // Tells the homepage which step is on screen, so its labels can follow.
+  const phase = name => window.dispatchEvent(new CustomEvent('surge-phase', { detail: name }));
+
   const easeOut = k => 1 - Math.pow(1 - k, 3);
 
   // Run step(k) from 0 to 1 over `ms`, once per frame.
@@ -113,8 +116,10 @@
     App.controls.enabled = false;
     for (;;) {
       App.clearAll();
+      phase('board');
       if (calm) orbit(0.6, 30, 16);
       else await intro(bb.group);
+      phase('snap');
       await wait(STEP_MS);
 
       const parts = [];
@@ -124,6 +129,7 @@
         if (piece) contactPart(piece.group);
         await wait(STEP_MS);
       }
+      phase('wire');
       for (const wire of demo.wires) {
         const before = App.state.wires.length;
         placeJumper(wire, parts, bb);
@@ -135,8 +141,10 @@
         await wait(STEP_MS);
       }
 
+      phase('run');
       App.runSimulation();
       if (!calm) await finale();
+      phase('hold');
       await wait(HOLD_MS);
       App.stopSimulation();
     }
