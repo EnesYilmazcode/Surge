@@ -17,7 +17,7 @@ const layerMeta: Array<{ id: CircuitLayer; name: string; color: string }> = [
 ]
 
 export default function Inspector({ selected, result, activeLayers, onToggleLayer, onUpdate, onDelete }: InspectorProps) {
-  return <aside className="right-rail">
+  return <div className="inspector-stack">
     <section className="panel inspector-panel">
       <div className="panel-title"><SlidersHorizontal size={15} /> Inspector</div>
       {selected ? <div className="inspector-content">
@@ -58,5 +58,5 @@ export default function Inspector({ selected, result, activeLayers, onToggleLaye
       </div>
       <button className="engine-detail"><Zap size={14} /> Simulation report <ChevronRight size={14} /></button>
     </section>
-  </aside>
+  </div>
 }

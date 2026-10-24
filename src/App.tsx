@@ -140,7 +140,6 @@ export default function App() {
 
     <div className="workspace">
       <aside className="left-rail">
-        <AgentPanel isThinking={isThinking} lastSummary={summary} steps={steps} onSubmit={runAgent} />
         <section className="panel library-panel">
           <div className="panel-title-row"><div className="panel-title"><Box size={15} /> Components</div><span className="count-pill">{COMPONENT_LIBRARY.length}</span></div>
           <div className="search-box"><Search size={14} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search parts" /></div>
@@ -152,6 +151,7 @@ export default function App() {
             </button>)}
           </div>
         </section>
+        <Inspector selected={selected} result={result} activeLayers={activeLayers} onToggleLayer={(layer) => setActiveLayers((current) => ({ ...current, [layer]: !current[layer] }))} onUpdate={updateComponent} onDelete={deleteComponent} />
       </aside>
 
       <section className="viewport">
@@ -177,7 +177,9 @@ export default function App() {
         </div>
       </section>
 
-      <Inspector selected={selected} result={result} activeLayers={activeLayers} onToggleLayer={(layer) => setActiveLayers((current) => ({ ...current, [layer]: !current[layer] }))} onUpdate={updateComponent} onDelete={deleteComponent} />
+      <aside className="right-rail chat-rail">
+        <AgentPanel isThinking={isThinking} lastSummary={summary} steps={steps} onSubmit={runAgent} />
+      </aside>
     </div>
   </main>
 }

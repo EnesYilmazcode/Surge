@@ -1,4 +1,4 @@
-import { ArrowUp, Check, ChevronDown, Sparkles } from 'lucide-react'
+import { ArrowUp, Check, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 
 interface AgentPanelProps {
@@ -18,8 +18,8 @@ export default function AgentPanel({ isThinking, lastSummary, steps, onSubmit }:
 
   return <section className="agent-panel panel">
     <div className="panel-title-row">
-      <div className="panel-title"><Sparkles size={15} /> Design agent</div>
-      <button className="model-pill">SURGE-1 <ChevronDown size={12} /></button>
+      <div className="panel-title"><Sparkles size={15} /> Surge</div>
+      <span className="model-pill">CIRCUIT ASSISTANT</span>
     </div>
     <div className="agent-thread">
       <div className="agent-orb"><span /></div>
