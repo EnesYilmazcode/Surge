@@ -1056,10 +1056,13 @@
       comps.forEach((c, i) => {
         const id = ids[i];
         let pA = '—', pB = '—';
-        if (c.holeRefs && c.holeRefs.length > 2) {
+        if (c.type === 'esp32' && c.holeRefs) {
           const h = c.holeRefs, n = h.length / 2, f = App.formatHole;
           pA = `${f(h[0])}–${f(h[n - 1])}`;
           pB = `${f(h[n])}–${f(h[2 * n - 1])}`;
+        } else if (c.holeRefs && c.holeRefs.length > 2) {
+          // Other multi-pin parts: every socket, in pin order
+          pA = c.holeRefs.map(h => App.formatHole(h)).join(', ');
         } else if (c.holeRefs) {
           pA = App.formatHole(c.holeRefs[0]);
           pB = App.formatHole(c.holeRefs[1]);

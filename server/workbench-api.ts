@@ -102,7 +102,8 @@ export function createWorkbenchHandler(options: SurgeOptions) {
       body = JSON.parse(await readInput(request))
       if (!body || typeof body.message !== 'string' || !body.message.trim() || body.message.length > 6000 || typeof body.markdown !== 'string' || body.markdown.length > 250000) throw new Error()
       if (!body.board || !Array.isArray(body.board.components) || body.board.components.length > 300 || !Array.isArray(body.board.wires) || body.board.wires.length > 1000) throw new Error()
-      if (body.board.components.some((part) => !part || typeof part.type !== 'string' || !kinds.includes(part.type.toLowerCase()) || (part.id !== undefined && typeof part.id !== 'string'))) throw new Error()
+      // Any part may be on the board as context; the model only edits the kinds it knows.
+      if (body.board.components.some((part) => !part || typeof part.type !== 'string' || (part.id !== undefined && typeof part.id !== 'string'))) throw new Error()
       if (body.history !== undefined && (!Array.isArray(body.history) || body.history.length > 12 || body.history.some((entry) => !entry || !['user', 'model'].includes(entry.role) || typeof entry.text !== 'string' || entry.text.length > 16000))) throw new Error()
     } catch { json(response, 400, { error: 'Invalid board or message. Your circuit has not changed.' }); return }
     if (!options.apiKey) { json(response, 503, { error: 'Connect a Gemini key on the local server to use Surge.' }); return }
