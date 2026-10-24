@@ -86,6 +86,17 @@
     scene.addEventListener('load', () => {
       setTimeout(() => document.documentElement.classList.add('is-loaded'), 300);
     });
+
+    // Pressing the bench button turns this scene into the editor in place, with
+    // no new page. The address follows, so a refresh stays in the editor, and
+    // Back returns to the title.
+    window.surgeEditorOpened = () => {
+      history.pushState({ surge: 'editor' }, '', '/app.html?demo');
+      document.title = scene.contentDocument?.title || 'Surge';
+      scene.title = 'Surge editor';
+      document.querySelector('.open')?.remove();
+    };
+    window.addEventListener('popstate', () => location.reload());
   </script>
 </body>
 </html>

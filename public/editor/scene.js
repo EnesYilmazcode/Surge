@@ -125,6 +125,9 @@
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
+    // Resizing clears the canvas, and the browser paints before the next frame
+    // is drawn, so draw now: otherwise a canvas that is resizing flashes black.
+    renderer.render(scene, camera);
   }
   resize();
   new ResizeObserver(resize).observe(container);

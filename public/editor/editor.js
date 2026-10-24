@@ -55,8 +55,8 @@
   // Narrow screens need the camera further back to fit the board's width.
   const _aspect = () => Math.max(0.45, App.camera.aspect || 1.6);
   const _defaultCamPos = {};
-  function _fitDefault() {
-    const k = Math.max(1, 1.55 / _aspect());
+  function _fitDefault(aspect) {
+    const k = Math.max(1, 1.55 / (aspect ? Math.max(0.45, aspect) : _aspect()));
     Object.assign(_defaultCamPos, { x: 0, y: 18 * k, z: 24 * k });
   }
   _fitDefault();
@@ -88,6 +88,16 @@
     const resetBtn = document.getElementById('reset-cam-btn');
     if (resetBtn) resetBtn.style.display = _isCamDefault() ? 'none' : 'flex';
   }
+
+  // The default view for a canvas of this aspect, which becomes the view the
+  // reset button returns to. The homepage glides into it when it opens the editor.
+  App.defaultView = function (aspect) {
+    _fitDefault(aspect);
+    return {
+      position: new THREE.Vector3(_defaultCamPos.x, _defaultCamPos.y, _defaultCamPos.z),
+      target:   new THREE.Vector3(_defaultCamTgt.x, _defaultCamTgt.y, _defaultCamTgt.z),
+    };
+  };
 
   // Glide the camera back to the default view.
   App.resetView = function () {
@@ -1207,6 +1217,7 @@
     undoStack.length = 0;
     redoStack.length = 0;
   }
+  App.clearHistory = clearHistory;
 
   function applySnapshot(snap) {
     const before = state.components;

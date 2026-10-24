@@ -2,24 +2,29 @@
 //  home.js: the homepage scene, loaded by app.html?home
 //
 //  One circuit, centred on the bench, with nothing to scroll. Across the front,
-//  a large guarded button spans the breadboard: pressing it opens the editor.
-//  Behind the board, SURGE and the Surge mark stand on the bench in 3D, and
-//  drop in while the circuit's LED flickers on. Nothing is saved.
+//  a large guarded button spans the breadboard. Behind the board, SURGE and the
+//  Surge mark stand on the bench in 3D, and drop in while the circuit's LED
+//  flickers on. Nothing is saved until the button is pressed: then this same
+//  scene becomes the editor, with no new page (enterEditor).
 // ─────────────────────────────────────────────────────────────
 
 (function (App) {
 
   const { placePart, placeJumper, tween } = App.stage;
 
+  // Everything that leaves when the editor opens is transparent from the start,
+  // at full opacity: turning transparency on later recompiles the shaders, and
+  // the first frame of the transition would stall.
+  const fades = { transparent: true, opacity: 1 };
   const GREEN = 0x15803d, ORANGE = 0xe98b0b, CREAM = 0xf4f1ea;
-  const BASE_MAT  = new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.5, metalness: 0.2 });
-  const GUARD_MAT = new THREE.MeshPhysicalMaterial({ color: 0x8d9198, roughness: 0.38, metalness: 0.55, clearcoat: 0.2 });
-  const CAP_MAT   = new THREE.MeshPhysicalMaterial({ color: GREEN, roughness: 0.45, emissive: 0x0f5d2a, emissiveIntensity: 0.25 });
+  const BASE_MAT  = new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.5, metalness: 0.2, ...fades });
+  const GUARD_MAT = new THREE.MeshPhysicalMaterial({ color: 0x8d9198, roughness: 0.38, metalness: 0.55, clearcoat: 0.2, ...fades });
+  const CAP_MAT   = new THREE.MeshPhysicalMaterial({ color: GREEN, roughness: 0.45, emissive: 0x0f5d2a, emissiveIntensity: 0.25, ...fades });
   // The title letters: cream faces, with the brand orange on their sides.
-  const FACE_MAT  = new THREE.MeshPhysicalMaterial({ color: App.lin(CREAM), roughness: 0.4, clearcoat: 0.5, clearcoatRoughness: 0.3 });
-  const SIDE_MAT  = new THREE.MeshPhysicalMaterial({ color: App.lin(ORANGE), roughness: 0.45, clearcoat: 0.3, clearcoatRoughness: 0.4 });
+  const FACE_MAT  = new THREE.MeshPhysicalMaterial({ color: App.lin(CREAM), roughness: 0.4, clearcoat: 0.5, clearcoatRoughness: 0.3, ...fades });
+  const SIDE_MAT  = new THREE.MeshPhysicalMaterial({ color: App.lin(ORANGE), roughness: 0.45, clearcoat: 0.3, clearcoatRoughness: 0.4, ...fades });
   // The mark's trace, the same cream as the letter faces.
-  const TRACE_MAT = new THREE.MeshPhysicalMaterial({ color: App.lin(CREAM), roughness: 0.35, clearcoat: 0.5, clearcoatRoughness: 0.3 });
+  const TRACE_MAT = new THREE.MeshPhysicalMaterial({ color: App.lin(CREAM), roughness: 0.35, clearcoat: 0.5, clearcoatRoughness: 0.3, ...fades });
 
   // A rounded rectangle, in the x-y plane, centred on the origin.
   function rounded(w, d, r) {
@@ -96,6 +101,7 @@
     );
     label.rotation.x = -Math.PI / 2;
     label.position.y = CAP_H + 0.01;
+    label.renderOrder = 1;                    // after the cap, which is transparent too
     capGroup.add(cap, label);
 
     group.add(base, guard, capGroup);
@@ -232,10 +238,96 @@
     if (leaving) return;
     leaving = true;
     capTarget = editor.restY - PRESS;
-    setTimeout(() => { window.top.location.href = 'app.html'; }, 140);
+    setTimeout(enterEditor, 140);
   }
 
-  function setup(demo, font) {
+  // ── Into the editor ──────────────────────────────────────────
+  //  The homepage is the editor with its panels hidden, so opening the editor
+  //  needs no new page. The title and the button sink into the bench as they
+  //  fade, the camera glides to the editor's view, and the panels slide in from
+  //  their edges: the top bar from the top, the parts from the left and the
+  //  chat from the right (or up from the bottom, where they stack under the
+  //  canvas). The canvas shrinks with them, so the scene never jumps. The
+  //  circuit on the bench becomes the editor's, as app.html?demo opens it.
+  const ENTER_MS = 1100;
+  const easeInOut = k => k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+  const listening = new AbortController();     // the homepage's pointer handlers
+  let title = null, breathe = null, limits = null;
+
+  // Animate `prop` (a margin) from -size to 0, so the element slides in and
+  // the layout makes room for it as it goes.
+  function slideIn(el, prop, size, fade, ms, delay) {
+    if (!el || !size) return;
+    const from = { [prop]: -size + 'px' }, to = { [prop]: '0px' };
+    if (fade) { from.opacity = 0; to.opacity = 1; }
+    el.animate([from, to], { duration: ms, delay, easing: 'cubic-bezier(0.22, 0.8, 0.24, 1)', fill: 'backwards' });
+  }
+
+  function enterEditor() {
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const ms = reduce ? 1 : ENTER_MS;
+    listening.abort();
+    App.setMode('select');            // and no leftover hint from wiring the demo
+    App.removeTicker(breathe);
+    App.controls.enabled = true;
+    App.renderer.domElement.style.cursor = '';
+
+    // Show the editor's panels and measure where the canvas will end up, then
+    // start each panel off its edge before the browser paints it in place.
+    const $ = id => document.getElementById(id);
+    document.documentElement.classList.replace('scene', 'entering');
+    const top = $('topbar'), side = $('sidebar'), chat = $('surge-panel'), body = $('body');
+    const wrap = $('canvas-wrap').getBoundingClientRect();
+    const view = App.defaultView(wrap.width / wrap.height);
+    if (!reduce) {
+      const slide = ms * 0.8, delay = ms * 0.15;
+      slideIn(top, 'marginTop', top.offsetHeight, true, slide, delay);
+      if (getComputedStyle(body).flexDirection === 'column') {
+        slideIn(body, 'marginBottom', side.offsetHeight + chat.offsetHeight, false, slide, delay);
+      } else {
+        slideIn(side, 'marginLeft', side.offsetWidth, true, slide, delay);
+        slideIn(chat, 'marginRight', chat.offsetWidth, true, slide, delay);
+      }
+      $('clear-all-btn')?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: slide, delay, fill: 'backwards' });
+    }
+
+    // The title and the button sink into the bench as they fade.
+    const leavers = [editor.group, title?.group].filter(Boolean);
+    const mats = new Set();
+    leavers.forEach(g => g.traverse(o => { if (o.isMesh) [].concat(o.material).forEach(m => mats.add(m)); }));
+    const y0 = leavers.map(g => g.position.y);
+    tween(ms * 0.7, k => {
+      const e = k * k;
+      mats.forEach(m => { m.opacity = 1 - e; });
+      leavers.forEach((g, i) => { g.position.y = y0[i] - e * 2.5; });
+    }).then(() => {
+      leavers.forEach(g => { App.scene.remove(g); App.disposeGroup(g); });
+      App.removeTicker(capTick);
+    });
+
+    // The camera glides from the title's framing to the editor's.
+    const p0 = App.camera.position.clone(), t0 = App.controls.target.clone();
+    tween(ms, k => {
+      const e = easeInOut(k);
+      App.camera.position.lerpVectors(p0, view.position, e);
+      App.controls.target.lerpVectors(t0, view.target, e);
+    }).then(() => {
+      // From here on this is the editor, holding the demo circuit.
+      document.documentElement.classList.remove('entering');
+      App.isHero = false;
+      App.homeButton = null;
+      App.controls.minDistance = limits.min;
+      App.controls.maxDistance = limits.max;
+      App.state.circuitName = 'Demo';
+      const name = $('circuit-name-field');
+      if (name) name.textContent = 'Demo';
+      App.clearHistory();               // the demo is the starting point, not an edit
+      App.refreshCounts();              // and the first save, as opening the demo does
+      window.top.surgeEditorOpened?.();
+    });
+  }
+
+  function setup(demo, fontData) {
     const bb = App.state.breadboard;
     App.clearAll();
 
@@ -257,7 +349,7 @@
     whole.union(new THREE.Box3().setFromObject(editor.group));
 
     // The title stands behind the board, a little narrower than it.
-    const title = font ? makeTitle(font, cx, boardBox.min.z - 2.4, groundY, length * 0.86) : null;
+    title = fontData ? makeTitle(fontData, cx, boardBox.min.z - 2.4, groundY, length * 0.86) : null;
     if (title) whole.union(new THREE.Box3().setFromObject(title.group));
 
     const center = whole.getCenter(new THREE.Vector3());
@@ -275,32 +367,34 @@
     App.controls.target.copy(look);
     App.camera.position.set(look.x, look.y + dist * 0.4, look.z + dist);
     App.camera.lookAt(look);
+    limits = { min: App.controls.minDistance, max: App.controls.maxDistance };   // the editor's, for later
     App.controls.minDistance = 6;
     App.controls.maxDistance = 60;
 
     // The cap breathes, so the button reads as live.
-    App.addTicker(t => { CAP_MAT.emissiveIntensity = 0.22 + 0.12 * (0.5 + 0.5 * Math.sin(t * 1.6)); });
+    breathe = t => { CAP_MAT.emissiveIntensity = 0.22 + 0.12 * (0.5 + 0.5 * Math.sin(t * 1.6)); };
+    App.addTicker(breathe);
 
     // The canvas answers the pointer like a real button: the cap goes down when
     // pressed and comes back up when let go; letting go over it opens the editor.
     capTarget = editor.restY;
     App.addTicker(capTick);
-    const canvas = App.renderer.domElement;
+    const canvas = App.renderer.domElement, signal = listening.signal;
     canvas.addEventListener('pointerdown', e => {
       if (e.button !== 0 || !overButton(e)) return;
       canvas.setPointerCapture?.(e.pointerId);
       press();
-    });
+    }, { signal });
     canvas.addEventListener('pointerup', e => {
       if (!held) return;
       if (overButton(e)) openEditor(); else release();
-    });
-    canvas.addEventListener('pointercancel', release);
+    }, { signal });
+    canvas.addEventListener('pointercancel', release, { signal });
     canvas.addEventListener('pointermove', e => {
       const over = overButton(e);
       canvas.style.cursor = over ? 'pointer' : '';
       if (held && !leaving) capTarget = over ? editor.restY - PRESS : editor.restY;   // slide off to cancel
-    });
+    }, { signal });
 
     const led = App.state.components.find(c => c.type === 'led');
     if (title) dropIn(title, led);
