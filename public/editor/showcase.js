@@ -54,12 +54,19 @@
     const LED      = midOf(hole(10, 'b'), hole(8, 'b'));
 
     // The resting point of the camera: the middle of the whole circuit.
-    const CIRCUIT = midOf(BATTERY, RESISTOR, LED);
+    // Centred between the board's left edge and the battery, so both are in shot.
+    const CIRCUIT = new THREE.Vector3((BATTERY.x - bb.BOARD_W / 2) / 2, 0, 0);
     const LOOK = new THREE.Vector3(CIRCUIT.x + lookShift, 0, 0);
 
     // A camera key. The camera sits straight out along +z from its look point,
     // at height h, so every view is a front view of the long horizontal board.
-    const view = (p, look, r, h) => ({ p, look, r, h });
+    // On a narrow screen the board is wider than the view, so the overview and
+    // wide shots pull further back to fit it.
+    const fit = Math.min(3.5, Math.max(1, 1.6 / App.camera.aspect));
+    const view = (p, look, r, h) => {
+      const s = look === LOOK ? fit : 1;
+      return { p, look, r: r * s, h: h * s };
+    };
     const overview = p => view(p, LOOK, 30, 11);
 
     // Each event is a close-up on one piece. `until` holds a wider view for
@@ -162,7 +169,7 @@
     tween(2400, k => {
       const e = easeOut(k);
       board.position.y = rest + 7 * (1 - e);
-      frame({ look: LOOK, r: 30 + 14 * (1 - e), h: 11 + 12 * (1 - e), a: -5.5 * (1 - e) });
+      frame({ look: LOOK, r: (30 + 14 * (1 - e)) * fit, h: (11 + 12 * (1 - e)) * fit, a: -5.5 * (1 - e) });
     }).then(() => {
       // A critically damped spring follows the page. It never overshoots, so a
       // hard scroll glides to the new spot instead of swinging back and forth.
