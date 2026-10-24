@@ -19,7 +19,9 @@
 
   const $ = id => document.getElementById(id);
 
-  const API_BASE = '';
+  // The hosted editor reaches the Gemini route on Vercel; local dev uses the Vite server.
+  const HOSTED = /^surge-flow\.(web\.app|firebaseapp\.com)$/.test(window.location?.hostname || '');
+  const API_BASE = HOSTED ? 'https://surge-api-enesyilmaz5157-gmailcoms-projects.vercel.app' : '';
 
   // ── Server ───────────────────────────────────────────────────
   async function askSurge(message) {
