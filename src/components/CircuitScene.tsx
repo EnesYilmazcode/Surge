@@ -1,8 +1,9 @@
-import { ContactShadows, Grid, Line, OrbitControls, PerspectiveCamera, RoundedBox, Text } from '@react-three/drei'
+import { ContactShadows, Line, OrbitControls, PerspectiveCamera, RoundedBox, Text } from '@react-three/drei'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { useMemo, useRef } from 'react'
 import type { Group, Mesh } from 'three'
 import type { CircuitComponent, CircuitLayer, CircuitWire } from '../types/circuit'
+import BreadboardModel from './BreadboardModel'
 
 const LAYER_COLORS: Record<CircuitLayer, string> = {
   power: '#b66b0a',
@@ -17,6 +18,7 @@ interface SceneProps {
   activeLayers: Record<CircuitLayer, boolean>
   simulating: boolean
   onSelect: (id: string | null) => void
+  onPlace: (x: number, z: number) => void
 }
 
 function Pins({ count, span = 1.2 }: { count: number; span?: number }) {
@@ -112,10 +114,7 @@ function Board({ scene }: { scene: SceneProps }) {
     <pointLight position={[6, 4, -3]} intensity={8} distance={15} color="#c1e9df" />
     <PerspectiveCamera makeDefault position={[8.2, 8.7, 10.6]} fov={42} />
     <group onPointerMissed={() => scene.onSelect(null)}>
-      <RoundedBox position={[0, -0.22, 0]} args={[11.8, 0.32, 7.4]} radius={0.22} receiveShadow>
-        <meshStandardMaterial color="#e2eae5" metalness={0.12} roughness={0.75} />
-      </RoundedBox>
-      <Grid position={[0, -0.045, 0]} args={[11.2, 6.8]} cellSize={0.5} cellThickness={0.6} cellColor="#c2d3cb" sectionSize={2} sectionThickness={0.8} sectionColor="#91b1a3" fadeDistance={13} fadeStrength={1.4} infiniteGrid={false} />
+      <BreadboardModel onSurfaceClick={scene.onPlace} />
       {visibleWires.map((wire) => <RoutedWire key={wire.id} wire={wire} components={scene.components} active simulating={scene.simulating} />)}
       {scene.components.map((component) => <PartShape key={component.id} component={component} selected={scene.selectedId === component.id} simulating={scene.simulating} onSelect={() => scene.onSelect(component.id)} />)}
     </group>

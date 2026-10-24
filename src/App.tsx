@@ -1,10 +1,11 @@
 import { Box, CheckCircle2, ChevronDown, CircleHelp, Download, FolderOpen, MousePointer2, Pause, Play, Plus, RotateCcw, Save, Search, Undo2, Redo2, ZoomIn } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { planCircuit } from './agent/planner'
 import AgentPanel from './components/AgentPanel'
 import CircuitScene from './components/CircuitScene'
 import Inspector from './components/Inspector'
 import { COMPONENT_LIBRARY, createComponent, STARTER_DESIGN } from './data/library'
+import { nearestHole } from './data/breadboard'
 import { MAX_PROJECT_BYTES, parseProject, projectFilename, serializeProject, validateDesign } from './data/project-file'
 import { simulateCircuit } from './engine/simulator'
 import type { CircuitComponent, CircuitDesign, CircuitLayer, ComponentKind } from './types/circuit'
@@ -33,16 +34,29 @@ export default function App() {
   const [fileNotice, setFileNotice] = useState<{ message: string; error: boolean } | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const agentRun = useRef(0)
+  const [placementKind, setPlacementKind] = useState<ComponentKind | null>(null)
+
+  useEffect(() => {
+    const cancel = (event: KeyboardEvent) => { if (event.key === 'Escape') setPlacementKind(null) }
+    window.addEventListener('keydown', cancel)
+    return () => window.removeEventListener('keydown', cancel)
+  }, [])
 
   const selected = design.components.find((item) => item.id === selectedId) ?? null
   const result = useMemo(() => simulateCircuit(design), [design])
   const library = COMPONENT_LIBRARY.filter((item) => item.name.toLowerCase().includes(search.toLowerCase()))
 
-  const addComponent = (kind: ComponentKind) => {
-    const next = createComponent(kind, design.components.length)
+  const placeComponent = (x: number, z: number) => {
+    if (!placementKind) { setSelectedId(null); return }
+    const hole = nearestHole(x, z)
+    if (!hole) return
+    const next = createComponent(placementKind, design.components.length)
+    next.position = [hole.x, 0, hole.z]
+    next.id = crypto.randomUUID()
     setDesign((current) => ({ ...current, components: [...current.components, next] }))
     setSelectedId(next.id)
     setSaved(false)
+    setPlacementKind(null)
   }
 
   const updateComponent = (id: string, patch: Partial<CircuitComponent>) => {
@@ -144,7 +158,7 @@ export default function App() {
           <div className="panel-title-row"><div className="panel-title"><Box size={15} /> Components</div><span className="count-pill">{COMPONENT_LIBRARY.length}</span></div>
           <div className="search-box"><Search size={14} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search parts" /></div>
           <div className="component-list">
-            {library.map((item) => <button key={item.kind} onClick={() => addComponent(item.kind)}>
+            {library.map((item) => <button key={item.kind} className={placementKind === item.kind ? 'selected-part' : ''} onClick={() => setPlacementKind(item.kind)}>
               <span className={`component-glyph ${item.kind}`} style={{ '--part-color': item.color } as React.CSSProperties}><i /></span>
               <span><strong>{item.name}</strong><small>{item.detail}</small></span>
               <Plus size={15} />
@@ -154,7 +168,8 @@ export default function App() {
         <Inspector selected={selected} result={result} activeLayers={activeLayers} onToggleLayer={(layer) => setActiveLayers((current) => ({ ...current, [layer]: !current[layer] }))} onUpdate={updateComponent} onDelete={deleteComponent} />
       </aside>
 
-      <section className="viewport">
+      <section className={`viewport ${placementKind ? 'placing' : ''}`}>
+        {placementKind && <div className="placement-hint">Click a socket to place {COMPONENT_LIBRARY.find((item) => item.kind === placementKind)?.name}<button onClick={() => setPlacementKind(null)}>Cancel · Esc</button></div>}
         {fileNotice && <div className={`file-notice ${fileNotice.error ? 'error' : ''}`} role={fileNotice.error ? 'alert' : 'status'}>
           <span>{fileNotice.message}</span>
           <button aria-label="Dismiss notification" onClick={() => setFileNotice(null)}>×</button>
@@ -166,10 +181,10 @@ export default function App() {
         </div>
         <div className="view-label"><span>3D</span> PERSPECTIVE</div>
         <div className="canvas-wrap">
-          <CircuitScene components={design.components} wires={design.wires} selectedId={selectedId} activeLayers={activeLayers} simulating={simulating} onSelect={setSelectedId} />
+          <CircuitScene components={design.components} wires={design.wires} selectedId={selectedId} activeLayers={activeLayers} simulating={simulating} onSelect={setSelectedId} onPlace={placeComponent} />
         </div>
         <div className="viewport-status">
-          <div><span className="status-led" /> ENGINE READY</div><div>GRID 0.5 <span>MM</span></div><div>SNAP ON</div>
+          <div><span className="status-led" /> BREADBOARD</div><div>30 COLUMNS</div><div>SOCKET SNAP</div>
         </div>
         <div className="sim-controls">
           <button className={simulating ? 'running' : ''} onClick={() => setSimulating((value) => !value)}>{simulating ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />} {simulating ? 'Pause simulation' : 'Run simulation'}</button>

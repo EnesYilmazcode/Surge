@@ -183,3 +183,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .chat-rail .agent-copy p { font-size: 13px; line-height: 1.7; }
 .chat-rail .prompt-box textarea { font-size: 12px; height: 86px; }
 .chat-rail .suggestions button { font-size: 10px; padding: 6px 9px; }
+
+.component-list button.selected-part { background: #e2f4ef; box-shadow: inset 0 0 0 1px #087f70; }
+.component-list button.selected-part svg { opacity: 1; color: #087f70; }
+.placing canvas { cursor: crosshair; }
+.placement-hint { position: absolute; z-index: 5; bottom: 92px; left: 16px; right: 16px; background: #ffffffef; border: 1px solid #acc7bf; border-radius: 8px; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11px; color: #263d39; }
+.placement-hint button { border: 0; background: #e2f4ef; color: #087f70; padding: 5px 8px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
