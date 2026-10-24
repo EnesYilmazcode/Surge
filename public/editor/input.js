@@ -371,9 +371,6 @@
         state.placementRotation = state.placementRotation === 0 ? 1 : 0;
         clearGhost();
         if (lastEvent) handleHover(lastEvent);
-        const r0 = state.placementRotation === 0;
-        App.setHint(state.pickedType === 'esp32' ? (r0 ? 'USB to the right' : 'USB to the left')
-                                                 : (r0 ? 'Along a row' : 'Along a column'), 1200);
         return;
       }
 
