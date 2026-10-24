@@ -40,55 +40,8 @@
     }
     .is-loaded .scene { opacity: 1; }
 
-    /* A small top bar: a way into the editor. The name is the 3D title in the scene. */
-    .top {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 2;
-      display: flex;
-      justify-content: flex-end;
-      align-items: center;
-      padding: 1.1rem 1.4rem;
-      pointer-events: none;
-    }
-    .top a {
-      pointer-events: auto;
-      color: #F4F1EA;
-      text-decoration: none;
-      font-family: 'Space Grotesk', system-ui, sans-serif;
-      font-weight: 600;
-      font-size: 0.95rem;
-    }
-    .open { opacity: 0.75; transition: opacity 0.2s ease, color 0.2s ease; }
-    .open:hover { opacity: 1; color: #F59E0B; }
-    /* The tagline sits above the bench, centred, and rises in once the scene is ready. */
-    .hero {
-      position: fixed;
-      top: 7vh;
-      left: 0;
-      right: 0;
-      z-index: 1;
-      text-align: center;
-      pointer-events: none;
-    }
-    .hero-sub {
-      font-size: 0.95rem;
-      letter-spacing: 0.02em;
-      color: rgba(244, 241, 234, 0.66);
-      opacity: 0;
-    }
-    .is-loaded .hero-sub   { animation: rise 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 0.25s forwards; }
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(14px); }
-      to   { opacity: 1; transform: none; }
-    }
-    @media (max-width: 600px) {
-      .hero { top: 9vh; }
-    }
-
-    /* The name, for screen readers: on screen it is the 3D title in the scene. */
+    /* Nothing sits over the scene: the 3D title names the page and the green
+       button opens the editor. These two are for screen readers and keyboards. */
     .sr-only {
       position: absolute;
       width: 1px;
@@ -97,11 +50,26 @@
       clip: rect(0 0 0 0);
       white-space: nowrap;
     }
-
+    /* The bench button cannot take focus, so Tab finds this link instead. */
+    .open {
+      position: fixed;
+      top: 1rem;
+      right: 1.2rem;
+      z-index: 2;
+      padding: 0.5rem 0.8rem;
+      border-radius: 8px;
+      background: #F59E0B;
+      color: #23262b;
+      text-decoration: none;
+      font-family: 'Space Grotesk', system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 0.95rem;
+      transform: translateY(-200%);
+    }
     .open:focus-visible {
-      outline: 2px solid #F59E0B;
-      outline-offset: 3px;
-      border-radius: 6px;
+      transform: none;
+      outline: 2px solid #F4F1EA;
+      outline-offset: 2px;
     }
   </style>
 </head>
@@ -110,13 +78,7 @@
 
   <h1 class="sr-only">Surge</h1>
 
-  <div class="hero">
-    <div class="hero-sub">A 3D breadboard in your browser</div>
-  </div>
-
-  <header class="top">
-    <a class="open" href="app.html">Open the editor</a>
-  </header>
+  <a class="open" href="app.html">Open the editor</a>
 
   <script>
     // The scene fades in once it has loaded.

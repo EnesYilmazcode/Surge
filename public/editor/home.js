@@ -3,7 +3,8 @@
 //
 //  One circuit, centred on the bench, with nothing to scroll. Across the front,
 //  a large guarded button spans the breadboard: pressing it opens the editor.
-//  Behind the board, SURGE stands on the bench in 3D letters. Nothing is saved.
+//  Behind the board, SURGE and the Surge mark stand on the bench in 3D, and
+//  drop in while the circuit's LED flickers on. Nothing is saved.
 // ─────────────────────────────────────────────────────────────
 
 (function (App) {
@@ -17,6 +18,8 @@
   // The title letters: cream faces, with the brand orange on their sides.
   const FACE_MAT  = new THREE.MeshPhysicalMaterial({ color: App.lin(CREAM), roughness: 0.4, clearcoat: 0.5, clearcoatRoughness: 0.3 });
   const SIDE_MAT  = new THREE.MeshPhysicalMaterial({ color: App.lin(ORANGE), roughness: 0.45, clearcoat: 0.3, clearcoatRoughness: 0.4 });
+  // The mark's trace, the same cream as the letter faces.
+  const TRACE_MAT = new THREE.MeshPhysicalMaterial({ color: App.lin(CREAM), roughness: 0.35, clearcoat: 0.5, clearcoatRoughness: 0.3 });
 
   // A rounded rectangle, in the x-y plane, centred on the origin.
   function rounded(w, d, r) {
@@ -100,24 +103,54 @@
     return { group, cap: capGroup, hit: [cap, label], restY: capGroup.position.y };
   }
 
-  // SURGE in 3D: one extruded letter per character, standing on the bench and
-  // facing the camera, sized to span `width`. The glyphs are Space Grotesk Bold,
-  // the page's own face, cut down to these five letters (fonts/OFL.txt).
+  // The Surge mark, standing upright: the orange tile with its trace, as in the
+  // favicon, `h` square and `depth` thick, centred on the origin and facing +z.
+  function makeMark(h, depth) {
+    const k = h / 4.2, S = h / 24;          // as drawn at 4.2 across, on a 24-unit grid
+    const flat = new THREE.Group();         // built lying down, as the bench is, then stood up
+    flat.add(block(h, h, 0.8 * k, depth, SIDE_MAT));
+    const pts = [[16.2, 5.6], [9.9, 5.6], [7.4, 8.1], [7.4, 9.7], [9.7, 12], [14.3, 12], [16.6, 14.3],
+                 [16.6, 15.9], [14.1, 18.4], [7.8, 18.4]]
+      .map(([px, py]) => new THREE.Vector3((px - 12) * S, depth + 0.06 * k, (py - 12) * S));
+    const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+    flat.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 160, 0.2 * k, 10, false), TRACE_MAT));
+    for (const [px, py] of [[16.6, 5.6], [7.4, 18.4]]) {
+      const dot = new THREE.Mesh(new THREE.CylinderGeometry(0.42 * k, 0.42 * k, 0.08 * k, 20), TRACE_MAT);
+      dot.position.set((px - 12) * S, depth + 0.04 * k, (py - 12) * S);
+      flat.add(dot);
+    }
+    flat.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
+    flat.rotation.x = Math.PI / 2;          // the top face turns to the camera, the trace reads upright
+    flat.position.z = -depth / 2;
+    const mark = new THREE.Group();
+    mark.add(flat);
+    return mark;
+  }
+
+  // SURGE in 3D, then the mark: one piece per character, standing on the bench
+  // and facing the camera, sized to span `width`. The glyphs are Space Grotesk
+  // Bold, the page's own face, cut down to these five letters (fonts/OFL.txt).
   const TITLE = 'SURGE';
   function makeTitle(font, cx, z, groundY, width) {
     const res = font.data.resolution;
-    const gap = 0.06;                                   // extra tracking, in ems
-    const ems = [...TITLE].reduce((sum, ch) => sum + font.data.glyphs[ch].ha / res, 0) + gap * (TITLE.length - 1);
+    const gap = 0.06, markGap = 0.22;                  // extra tracking, in ems
+    // The mark is as tall as the capitals, measured from the E.
+    const probe = new THREE.TextGeometry('E', { font, size: 1, height: 0.01, curveSegments: 2 });
+    probe.computeBoundingBox();
+    const bevel = 0.02, cap = probe.boundingBox.max.y + 2 * bevel;
+    probe.dispose();
+    const ems = [...TITLE].reduce((sum, ch) => sum + font.data.glyphs[ch].ha / res + gap, 0) + markGap + cap;
     const size = width / ems, depth = size * 0.28;
+
     const group = new THREE.Group();
     group.position.set(cx - width / 2, groundY, z);
     let x = 0;
-    const letters = [...TITLE].map(ch => {
+    const pieces = [...TITLE].map(ch => {
       const geo = new THREE.TextGeometry(ch, {
         font, size, height: depth, curveSegments: 10,
-        bevelEnabled: true, bevelThickness: size * 0.03, bevelSize: size * 0.02, bevelSegments: 3,
+        bevelEnabled: true, bevelThickness: size * 0.03, bevelSize: size * bevel, bevelSegments: 3,
       });
-      geo.translate(0, size * 0.03, -depth / 2);          // the bevel sits on the bench, not under it
+      geo.translate(0, size * bevel, -depth / 2);         // the bevel sits on the bench, not under it
       const mesh = new THREE.Mesh(geo, [FACE_MAT, SIDE_MAT]);
       mesh.castShadow = mesh.receiveShadow = true;
       mesh.position.x = x;
@@ -125,22 +158,48 @@
       group.add(mesh);
       return mesh;
     });
+    const h = cap * size;
+    const mark = makeMark(h, depth + 2 * size * 0.03);    // as thick as a letter with its bevels
+    mark.position.set(x + markGap * size + h / 2, h / 2, 0);
+    group.add(mark);
+    pieces.push(mark);
+    pieces.forEach(p => { p.userData.restY = p.position.y; });
+
     App.scene.add(group);
-    return { group, letters, size };
+    return { group, pieces, size };
   }
 
-  // The letters drop onto the bench one after another: a fall, then a small hop.
-  function dropIn(title) {
-    const lift = title.size * 1.4, FALL = 0.68;
+  // The pieces drop onto the bench one after another: a fall, then a small hop.
+  // Meanwhile the LED stutters, flashing as each piece lands; once the mark is
+  // down it stays on. With reduced motion, everything is simply in place and lit.
+  function dropIn(title, led) {
+    const setLit = led?.group.userData.setLit;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setLit?.(true, 1); return; }
+    const lift = title.size * 1.4, FALL = 0.68, MS = 720, START = 250, STEP = 110;
     const height = k => k < FALL ? lift * (1 - (k / FALL) ** 2)
                                  : lift * 0.06 * 4 * ((k - FALL) / (1 - FALL)) * (1 - (k - FALL) / (1 - FALL));
-    title.letters.forEach((m, i) => {
-      m.position.y = lift;
+    let flicker = null;
+    if (setLit) setTimeout(() => {
+      flicker = setInterval(() => setLit(Math.random() < 0.4, 0.4 + Math.random() * 0.5), 70);
+    }, START);
+    const last = title.pieces.length - 1;
+    const land = i => {
+      if (!setLit) return;
+      setLit(true, 1.4);                                  // a flash as the piece hits
+      if (i === last) { clearInterval(flicker); setTimeout(() => setLit(true, 1), 120); }
+    };
+    title.pieces.forEach((m, i) => {
+      const rest = m.userData.restY;
+      m.position.y = rest + lift;
       m.visible = false;
       setTimeout(() => {
         m.visible = true;
-        tween(720, k => { m.position.y = height(k); });
-      }, 250 + i * 110);
+        let landed = false;
+        tween(MS, k => {
+          m.position.y = rest + height(k);
+          if (!landed && k >= FALL) { landed = true; land(i); }
+        });
+      }, START + i * STEP);
     });
   }
 
@@ -243,7 +302,9 @@
       if (held && !leaving) capTarget = over ? editor.restY - PRESS : editor.restY;   // slide off to cancel
     });
 
-    if (title) dropIn(title);
+    const led = App.state.components.find(c => c.type === 'led');
+    if (title) dropIn(title, led);
+    else led?.group.userData.setLit?.(true, 1);
 
     window.dispatchEvent(new CustomEvent('surge-home-ready'));
   }
