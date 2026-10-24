@@ -11,9 +11,9 @@ interface InspectorProps {
 }
 
 const layerMeta: Array<{ id: CircuitLayer; name: string; color: string }> = [
-  { id: 'power', name: 'Power', color: '#ffb340' },
-  { id: 'signal', name: 'Signals', color: '#2bd6c4' },
-  { id: 'ground', name: 'Ground', color: '#768084' },
+  { id: 'power', name: 'Power', color: '#b66b0a' },
+  { id: 'signal', name: 'Signals', color: '#087f70' },
+  { id: 'ground', name: 'Ground', color: '#637873' },
 ]
 
 export default function Inspector({ selected, result, activeLayers, onToggleLayer, onUpdate, onDelete }: InspectorProps) {

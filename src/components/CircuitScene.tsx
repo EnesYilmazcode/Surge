@@ -5,9 +5,9 @@ import type { Group, Mesh } from 'three'
 import type { CircuitComponent, CircuitLayer, CircuitWire } from '../types/circuit'
 
 const LAYER_COLORS: Record<CircuitLayer, string> = {
-  power: '#ffb340',
-  signal: '#2bd6c4',
-  ground: '#768084',
+  power: '#b66b0a',
+  signal: '#087f70',
+  ground: '#637873',
 }
 
 interface SceneProps {
@@ -83,7 +83,7 @@ function PartShape({ component, selected, simulating, onSelect }: { component: C
   return <group ref={group} position={component.position} rotation={[0, component.rotation ?? 0, 0]} onClick={(event) => { event.stopPropagation(); onSelect() }}>
     {selected && <mesh position={[0, -0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[0.75, 0.92, 32]} /><meshBasicMaterial color="#42e8d1" transparent opacity={0.7} /></mesh>}
     {body}
-    <Text position={[0, 1.35, 0]} fontSize={0.24} color={selected ? '#7ffdec' : '#aeb9ba'} anchorY="middle" outlineWidth={0.008} outlineColor="#071012">{component.label}</Text>
+    <Text position={[0, 1.35, 0]} fontSize={0.24} color={selected ? '#087f70' : '#263d39'} anchorY="middle" outlineWidth={0.008} outlineColor="#ffffff">{component.label}</Text>
   </group>
 }
 
@@ -105,17 +105,17 @@ function RoutedWire({ wire, components, active, simulating }: { wire: CircuitWir
 function Board({ scene }: { scene: SceneProps }) {
   const visibleWires = useMemo(() => scene.wires.filter((wire) => scene.activeLayers[wire.layer]), [scene.wires, scene.activeLayers])
   return <>
-    <color attach="background" args={['#080b0d']} />
-    <fog attach="fog" args={['#080b0d', 13, 28]} />
+    <color attach="background" args={['#f3f7f6']} />
+    <fog attach="fog" args={['#f3f7f6', 13, 28]} />
     <ambientLight intensity={0.65} />
     <directionalLight position={[-4, 9, 3]} intensity={2.4} color="#e9fff9" castShadow />
-    <pointLight position={[6, 4, -3]} intensity={18} distance={15} color="#16a991" />
+    <pointLight position={[6, 4, -3]} intensity={8} distance={15} color="#c1e9df" />
     <PerspectiveCamera makeDefault position={[8.2, 8.7, 10.6]} fov={42} />
     <group onPointerMissed={() => scene.onSelect(null)}>
       <RoundedBox position={[0, -0.22, 0]} args={[11.8, 0.32, 7.4]} radius={0.22} receiveShadow>
-        <meshStandardMaterial color="#12191a" metalness={0.38} roughness={0.55} />
+        <meshStandardMaterial color="#e2eae5" metalness={0.12} roughness={0.75} />
       </RoundedBox>
-      <Grid position={[0, -0.045, 0]} args={[11.2, 6.8]} cellSize={0.5} cellThickness={0.6} cellColor="#263436" sectionSize={2} sectionThickness={0.8} sectionColor="#345653" fadeDistance={13} fadeStrength={1.4} infiniteGrid={false} />
+      <Grid position={[0, -0.045, 0]} args={[11.2, 6.8]} cellSize={0.5} cellThickness={0.6} cellColor="#c2d3cb" sectionSize={2} sectionThickness={0.8} sectionColor="#91b1a3" fadeDistance={13} fadeStrength={1.4} infiniteGrid={false} />
       {visibleWires.map((wire) => <RoutedWire key={wire.id} wire={wire} components={scene.components} active simulating={scene.simulating} />)}
       {scene.components.map((component) => <PartShape key={component.id} component={component} selected={scene.selectedId === component.id} simulating={scene.simulating} onSelect={() => scene.onSelect(component.id)} />)}
     </group>
