@@ -153,8 +153,19 @@
       board.position.y = rest + 7 * (1 - e);
       frame({ center: ORIGIN, look: LOOK, r: 24 + 14 * (1 - e), h: 14 + 10 * (1 - e), a: 0.6 - 5.5 * (1 - e) });
     }).then(() => {
-      App.addTicker(() => {
-        shown = calm ? target : shown + (target - shown) * 0.1;
+      // A critically damped spring follows the page. It never overshoots, so a
+      // hard scroll glides to the new spot instead of swinging back and forth.
+      const W = 5;                     // stiffness: the camera settles in about a second
+      let vel = 0, last = null;
+      App.addTicker(now => {
+        if (calm) {
+          shown = target;
+        } else {
+          const dt = last === null ? 1 / 60 : Math.min(0.05, now - last);
+          last = now;
+          vel += (W * W * (target - shown) - 2 * W * vel) * dt;
+          shown = Math.min(1, Math.max(0, shown + vel * dt));
+        }
         frame(sample(shown));
         if (demo) sync(shown);
       });
