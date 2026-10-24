@@ -25,12 +25,13 @@
     target = Math.min(1, Math.max(0, Number(e.detail) || 0));
   });
 
-  fetch('/editor/demo.surge')
-    .then(r => r.json())
-    .then(demo => start(demo))
-    .catch(() => {});
+  // The intro starts at once. The demo circuit arrives in parallel and joins
+  // the scene when it does, so the board never waits on the download.
+  let demo = null;
+  fetch('/editor/demo.surge').then(r => r.json()).then(data => { demo = data; }).catch(() => {});
+  start();
 
-  function start(demo) {
+  function start() {
     const bb = App.state.breadboard;
     const board = bb.group;
     const lookX = App.camera.aspect > 1.2 ? -3.5 : 0;   // board sits right of the text
@@ -155,7 +156,7 @@
       App.addTicker(() => {
         shown = calm ? target : shown + (target - shown) * 0.1;
         frame(sample(shown));
-        sync(shown);
+        if (demo) sync(shown);
       });
     });
   }
