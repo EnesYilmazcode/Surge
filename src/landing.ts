@@ -131,6 +131,53 @@ frame?.addEventListener('load', showScene)
 const doc = frame?.contentDocument
 if (doc && doc.readyState === 'complete' && doc.location.href !== 'about:blank') showScene()
 
+// Press Run: when the Run card is in view, a cursor comes in, presses the green
+// play button, and the scene lights its LED. Scrolling away resets it, so it
+// plays again on the next visit.
+const runCard = document.getElementById('run-card')
+const playButton = runCard?.querySelector<HTMLButtonElement>('.play') ?? null
+let runTimers: number[] = []
+
+function sendToScene(name: string) {
+  frame?.contentWindow?.dispatchEvent(new CustomEvent(name))
+}
+
+function playRun() {
+  if (!runCard || !playButton) return
+  runCard.classList.add('go')
+  runTimers = [
+    window.setTimeout(() => {
+      playButton.classList.add('pressed')
+      runCard.classList.add('clicked')
+    }, 1000),
+    window.setTimeout(() => {
+      playButton.classList.remove('pressed')
+      playButton.classList.add('lit')
+      runCard.classList.remove('clicked')
+      runCard.classList.add('lit')
+      sendToScene('surge-run')
+    }, 1150),
+  ]
+}
+
+function resetRun() {
+  runTimers.forEach(timer => window.clearTimeout(timer))
+  runTimers = []
+  runCard?.classList.remove('go', 'clicked', 'lit')
+  playButton?.classList.remove('pressed', 'lit')
+  sendToScene('surge-stop')
+}
+
+if (runCard && 'IntersectionObserver' in window) {
+  const watchRun = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) playRun()
+      else resetRun()
+    }
+  }, { threshold: 0.6 })
+  watchRun.observe(runCard)
+}
+
 // Cards rise in as they enter the screen.
 if ('IntersectionObserver' in window) {
   const seen = new IntersectionObserver(entries => {

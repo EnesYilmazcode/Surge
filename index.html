@@ -214,6 +214,44 @@
     }
     .closing .hero-actions { justify-content: center; }
 
+    /* ── Press Run: a cursor presses the play button, and the LED lights ── */
+    .run-control {
+      position: relative;
+      width: 4.5rem;
+      height: 4.5rem;
+      margin-top: 1.25rem;
+    }
+    .play {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      width: 4.5rem;
+      height: 4.5rem;
+      border: 0;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #4ade80, #16a34a);
+      color: #fff;
+      box-shadow: 0 8px 22px rgba(22,163,74,0.45), inset 0 1px 0 rgba(255,255,255,0.35);
+      transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.25s ease;
+    }
+    .play svg { margin-left: 4px; }
+    .play.pressed { transform: scale(0.9); box-shadow: 0 3px 10px rgba(22,163,74,0.5); }
+    .play.lit { background: radial-gradient(circle at 35% 30%, #bbf7d0, #15803d); }
+    .cursor {
+      position: absolute;
+      left: 0;
+      top: 0;
+      pointer-events: none;
+      opacity: 0;
+      transform: translate(230px, 150px);
+      transition: transform 0.95s cubic-bezier(0.45, 0.05, 0.25, 1), opacity 0.3s ease;
+      filter: drop-shadow(0 2px 3px rgba(0,0,0,0.45));
+    }
+    .run-card.go .cursor { opacity: 1; transform: translate(30px, 30px); }
+    .run-card.clicked .cursor { transform: translate(30px, 30px) scale(0.88); transition: transform 0.12s ease; }
+    .run-card.lit .cursor { opacity: 0; transition: opacity 0.4s ease; }
+
     /* ── Credits ─────────────────────────────────────────── */
     .credits {
       position: relative;
@@ -296,8 +334,14 @@
     </section>
 
     <section class="beat beat-right">
-      <div class="card">
+      <div class="card run-card" id="run-card">
         <h2>Press Run</h2>
+        <div class="run-control">
+          <button class="play" type="button" tabindex="-1" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>
+          </button>
+          <svg class="cursor" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M5 3l14 8-6 1.8L16 20l-3 1.5-3.4-6.8L5 17z" fill="#fff" stroke="#1A1814" stroke-width="1.3" stroke-linejoin="round"/></svg>
+        </div>
       </div>
     </section>
 

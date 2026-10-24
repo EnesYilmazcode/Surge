@@ -134,6 +134,14 @@
     const wireRecs = [];
     let running = false;
 
+    // The homepage's Run button lights the LED. Leaving the Run section turns it off.
+    window.addEventListener('surge-run', () => {
+      if (!running) { App.runSimulation(); running = true; }
+    });
+    window.addEventListener('surge-stop', () => {
+      if (running) { App.stopSimulation(); running = false; }
+    });
+
     // Bring the placed pieces in line with progress, in both directions.
     function sync(p) {
       if (running && p < RUN_AT - HYST) { App.stopSimulation(); running = false; }
@@ -160,7 +168,6 @@
           contact(w.endWorld);
         }
       });
-      if (!running && p >= RUN_AT) { App.runSimulation(); running = true; }
     }
 
     // The intro: the board drops in while the camera zooms in and spins once,
