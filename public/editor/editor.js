@@ -152,6 +152,29 @@
     App.addTicker(tick);
   };
 
+  // A jumper is laid from one pin to the other: its tube draws out along the
+  // curve, then it clicks. Restoring a saved board skips this, as snapIn does.
+  App.layWire = function (wireGroup) {
+    if (_historyMuted) return;
+    const tube = wireGroup.children.find(o => o.geometry?.type === 'TubeGeometry');
+    if (!tube) return;
+    const geo   = tube.geometry;
+    const total = geo.index ? geo.index.count : geo.attributes.position.count;
+    const start = performance.now() / 1000;
+    const dur   = 0.5;
+    geo.setDrawRange(0, 0);
+    const tick = now => {
+      const k = Math.min(1, (now - start) / dur);
+      const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+      geo.setDrawRange(0, Math.ceil(total * e));
+      if (k < 1) return;
+      geo.setDrawRange(0, Infinity);
+      App.removeTicker(tick);
+      if (!App.isHero) playSnapClick();
+    };
+    App.addTicker(tick);
+  };
+
   // ── Sidebar ──────────────────────────────────────────────────
 
   function initSidebar() {
@@ -463,7 +486,7 @@
     const wireGroup = App.buildWire(startWorld, endWorld, state.wireColor);
     wireGroup.userData.color = state.wireColor;
     App.scene.add(wireGroup);
-    App.snapIn(wireGroup, 0.5);
+    App.layWire(wireGroup);
 
     const sp = state.wireStart.pinMesh;
     if (sp) sp.userData.isWireStart = false;
