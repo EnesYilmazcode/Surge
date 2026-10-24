@@ -65,6 +65,25 @@
     App.camera.lookAt(t);
   }
 
+  // A brief amber ring on the board where a piece clicks home.
+  const RING = new THREE.RingGeometry(0.14, 0.2, 40);
+  RING.rotateX(-Math.PI / 2);
+  function contact(at) {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.9, depthWrite: false });
+    const ring = new THREE.Mesh(RING, mat);
+    ring.position.set(at.x, 0.42, at.z);
+    App.scene.add(ring);
+    tween(520, k => {
+      ring.scale.setScalar(1 + 4 * easeOut(k));
+      mat.opacity = 0.9 * (1 - k);
+      if (k === 1) { App.scene.remove(ring); mat.dispose(); }
+    });
+  }
+
+  function contactPart(group) {
+    contact(new THREE.Box3().setFromObject(group).getCenter(new THREE.Vector3()));
+  }
+
   // The board drops in while the camera spins, then the spin slows to rest
   // at an angle. The derivative of easeOut is zero at the end, so it settles.
   async function intro(board) {
@@ -90,11 +109,19 @@
 
       const parts = [];
       for (const part of demo.components) {
-        parts.push(placePart(part, bb));
+        const piece = placePart(part, bb);
+        parts.push(piece);
+        if (piece) contactPart(piece.group);
         await wait(STEP_MS);
       }
       for (const wire of demo.wires) {
+        const before = App.state.wires.length;
         placeJumper(wire, parts, bb);
+        if (App.state.wires.length > before) {
+          const w = App.state.wires[before];
+          contact(w.startWorld);
+          contact(w.endWorld);
+        }
         await wait(STEP_MS);
       }
 
