@@ -12,9 +12,12 @@
 
   const { easeOut, tween, contact, contactPart, placePart, placeJumper } = App.stage;
 
-  const PART_AT = [0.17, 0.24, 0.31];       // battery, resistor, LED
-  const WIRE_AT = [0.36, 0.39, 0.43, 0.47]; // the four jumpers in demo.surge
-  const RUN_AT = 0.55;                      // Run lights the LED
+  // Checkpoints sit at the top of each section: Place 0.196, Wire 0.393,
+  // Run 0.589, Keep 0.786, Closing 0.982 (share of the page's total scroll).
+  // The battery lands on its checkpoint; the rest land between checkpoints.
+  const PART_AT = [0.196, 0.28, 0.34];      // battery, resistor, LED
+  const WIRE_AT = [0.393, 0.41, 0.48, 0.5]; // the four jumpers in demo.surge
+  const RUN_AT = 0.589;                     // Run lights the LED at its checkpoint
   const HYST = 0.012;                       // a part is removed only well past its threshold
   const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -63,8 +66,8 @@
       { p: PART_AT[0], at: BATTERY,  a: 0.12, r: 10, h: 6 },
       { p: PART_AT[1], at: RESISTOR, a: 0.35, r: 6.5, h: 4.5 },
       { p: PART_AT[2], at: LED,      a: 0.5,  r: 6, h: 4 },
-      { p: 0.375,      at: RAILS,    a: 0.9,  r: 8, h: 6 },
-      { p: 0.45,       at: SIGNAL,   a: 1.1,  r: 7, h: 5 },
+      { p: 0.393,      at: RAILS,    a: 0.9,  r: 8, h: 6 },
+      { p: 0.48,       at: SIGNAL,   a: 1.1,  r: 7, h: 5 },
       { p: RUN_AT,     at: LED,      a: 1.4,  r: 8, h: 5 },
     ];
 
@@ -82,7 +85,7 @@
       prevA = e.a;
     });
     // After Run, the camera swings to the far side and pulls wide.
-    keys.push(overview(0.8, 2.6), { ...overview(1, 3.9), r: 34, h: 22 });
+    keys.push(overview(0.786, 2.6), overview(0.982, 3.9), { ...overview(1, 3.9), r: 34, h: 22 });
     keys.sort((a, b) => a.p - b.p);
 
     // The camera state at progress p, blended smoothly between keys.
