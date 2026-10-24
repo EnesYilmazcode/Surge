@@ -37,11 +37,16 @@ window.addEventListener('scroll', () => {
   }
 }, { passive: true })
 
-frame?.addEventListener('load', () => {
+// The board's first frame lands a moment after the iframe's load event.
+const showScene = () => {
   sendProgress()
-  // The board's first frame lands a moment after the iframe's load event.
   setTimeout(() => document.documentElement.classList.add('is-loaded'), 300)
-})
+}
+frame?.addEventListener('load', showScene)
+// A cached page can finish loading before this module runs, and then the load
+// event never reaches us. Show the scene in that case, skipping about:blank.
+const doc = frame?.contentDocument
+if (doc && doc.readyState === 'complete' && doc.location.href !== 'about:blank') showScene()
 
 // Cards rise in as they enter the screen.
 if ('IntersectionObserver' in window) {
