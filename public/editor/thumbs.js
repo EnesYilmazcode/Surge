@@ -74,6 +74,6 @@
   }
 
   // After first paint, so the editor itself is never waiting on this.
-  window.addEventListener('load', () => setTimeout(render, 150));
+  App.onReady(() => setTimeout(render, 150));
 
 })(window.App = window.App || {});

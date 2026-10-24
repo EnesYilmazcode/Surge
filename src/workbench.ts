@@ -1,8 +1,6 @@
-import * as THREE from 'three-classic'
-import { OrbitControls } from 'three-classic/examples/jsm/controls/OrbitControls.js'
-import { RoomEnvironment } from 'three-classic/examples/jsm/environments/RoomEnvironment.js'
+import { workbenchThree } from './workbench-three'
 
-;(window as unknown as Record<string, unknown>).THREE = { ...THREE, OrbitControls, RoomEnvironment }
+;(window as unknown as Record<string, unknown>).THREE = workbenchThree
 ;(window as unknown as Record<string, unknown>).App = {
   onReady(callback: () => void) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', callback, { once: true })
@@ -15,8 +13,15 @@ async function loadScript(name: string) {
     const script = document.createElement('script')
     script.src = `/editor/${name}.js`
     script.async = false
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error(`Unable to load the ${name} module.`))
+    const onError = (event: ErrorEvent) => {
+      if (event.filename && !event.filename.includes(`/editor/${name}.js`)) return
+      cleanup()
+      reject(new Error(`${name}: ${event.message}`))
+    }
+    const cleanup = () => window.removeEventListener('error', onError)
+    window.addEventListener('error', onError)
+    script.onload = () => { cleanup(); resolve() }
+    script.onerror = () => { cleanup(); reject(new Error(`Unable to load the ${name} module.`)) }
     document.body.append(script)
   })
 }
