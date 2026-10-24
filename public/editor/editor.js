@@ -1130,7 +1130,7 @@
   App.scheduleAutoSave = scheduleAutoSave;
 
   function _doAutoSave() {
-    if (App.isHero) return;                                        // the homepage preview saves nothing
+    if (App.isHero) return;                                        // the homepage scene saves nothing
     if (!state.components.length && !state.wires.length) return; // nothing to save
 
     if (!state.circuitId) {

@@ -1,0 +1,18 @@
+/* Homepage scene: app.html?showcase shows only the 3D board, edge to edge. */
+html.scene #topbar,
+html.scene #sidebar,
+html.scene #surge-panel,
+html.scene #hint-box,
+html.scene #hole-label,
+html.scene #rotate-badge,
+html.scene #empty-state,
+html.scene #clear-all-btn,
+html.scene #reset-cam-btn,
+html.scene #load-preview-modal,
+html.scene #sim-results {
+  display: none !important;
+}
+html.scene,
+html.scene body {
+  overflow: hidden;
+}
