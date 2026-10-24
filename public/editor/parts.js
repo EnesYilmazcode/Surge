@@ -633,7 +633,7 @@
     SPACER: 0.4,             // header plastic under the board
     T: 0.25,                 // PCB thickness (1.6 mm)
     ANT: 1.3, USB: 1.2,      // board overhang past the first and last pin
-    EDGE: 0.475,             // board edge past the header centre line
+    EDGE: 0.32,              // board edge past the header centre line; clears a wire in the next row
   };
   App.ESP32_DIMS = ESP;
 
@@ -667,12 +667,12 @@
     g.fillStyle = g.strokeStyle = '#eef0ec';
     g.lineWidth = 3;
     g.textBaseline = 'middle';
-    g.font = '700 25px "JetBrains Mono", Menlo, Consolas, monospace';
+    g.font = '700 20px "JetBrains Mono", Menlo, Consolas, monospace';
     for (let i = 0; i < N; i++) {
       g.textAlign = 'right';
-      g.fillText(ESP32_PINS[i], px(-span / 2 - 0.13), pz(i * P));
+      g.fillText(ESP32_PINS[i], px(-span / 2 - 0.1), pz(i * P));
       g.textAlign = 'left';
-      g.fillText(ESP32_PINS[N + i], px(span / 2 + 0.13), pz(i * P));
+      g.fillText(ESP32_PINS[N + i], px(span / 2 + 0.1), pz(i * P));
     }
     for (const sx of [-1, 1]) {
       const x0 = px(sx * span / 2 - P / 2 + 0.02), z0 = pz(-P / 2 + 0.02);
@@ -738,17 +738,17 @@
     const holes = [];
     const shape = roundedRectShape(W, L, 0.22);
     for (const sx of [-1, 1]) for (const z of [zMin + 0.32, zMax - 0.32]) {
-      const x = sx * (W / 2 - 0.3);
+      const x = sx * (W / 2 - 0.28);
       holes.push([x, z]);
       const h = new THREE.Path();
-      h.absarc(x, -(z - zMid), 0.17, 0, Math.PI * 2, true);
+      h.absarc(x, -(z - zMid), 0.15, 0, Math.PI * 2, true);
       shape.holes.push(h);
     }
     const pcbGeo = new THREE.ExtrudeGeometry(shape, { depth: T, bevelEnabled: false, curveSegments: 12 });
     pcbGeo.rotateX(-Math.PI / 2);
     mesh(pcbGeo, ESP_MAT.mask, 0, y0, zMid);
     for (const [x, z] of holes) {
-      const ring = mesh(new THREE.RingGeometry(0.17, 0.27, 28), ESP_MAT.solder, x, top + 0.002, z);
+      const ring = mesh(new THREE.RingGeometry(0.15, 0.24, 28), ESP_MAT.solder, x, top + 0.002, z);
       ring.rotation.x = -Math.PI / 2;
     }
 

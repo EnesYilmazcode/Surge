@@ -1,6 +1,6 @@
 (function(root) {
   'use strict';
-  const types = new Set(['resistor', 'led', 'battery', 'buzzer', 'button']);
+  const types = new Set(['resistor', 'led', 'battery', 'buzzer', 'button', 'esp32']);
   const rows = new Set(['a','b','c','d','e','f','g','h','i','j','tp','tn','bn','bp']);
   function hole(value) {
     if (!value || !rows.has(value.row) || !Number.isInteger(value.col) || value.col < 0 || value.col >= 50) throw new Error('Invalid breadboard socket.');
@@ -17,7 +17,8 @@
         if (!c.position || !Number.isFinite(c.position.x) || !Number.isFinite(c.position.z) || Math.abs(c.position.x) > 1000 || Math.abs(c.position.z) > 1000) throw new Error('Invalid battery position.');
         result.position = { x: c.position.x, z: c.position.z };
       } else {
-        if (!Array.isArray(c.holeRefs) || c.holeRefs.length !== 2) throw new Error('Components need two socket connections.');
+        const sockets = c.type === 'esp32' ? 30 : 2;
+        if (!Array.isArray(c.holeRefs) || c.holeRefs.length !== sockets) throw new Error(sockets === 2 ? 'Components need two socket connections.' : 'An ESP32 needs 30 socket connections.');
         result.holeRefs = c.holeRefs.map(hole);
       }
       if (c.resistance !== undefined) {

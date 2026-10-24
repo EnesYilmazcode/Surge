@@ -120,6 +120,7 @@
     function footprint(type) {
       const holeA = holeUnderRay();
       if (!holeA) return null;
+      if (type === 'esp32') return esp32Footprint(holeA);
       const span  = SPANS()[type] || App.RESISTOR_SPAN;
       const holeB = state.breadboard.getSpanHole(holeA, span, state.placementRotation);
       const inRails = h => h && state.breadboard.RAIL_ROWS.includes(h.row);
@@ -131,6 +132,18 @@
       else if (!ok) why = 'a hole is taken';
       else if (App.overlapsPart(type, holeA, holeB)) { ok = false; why = 'it would sit on another part'; }
       return { holeA, holeB, ok, why };
+    }
+
+    // The ESP32 snaps to rows i and b around the hovered column.
+    function esp32Footprint(hover) {
+      const { holeA, holeB } = App.esp32Anchor(hover.col, state.placementRotation);
+      const holes = holeA && holeB ? App.esp32Holes(holeA, holeB) : null;
+      if (!holes) return { holeA: hover, holeB: null, ok: false, why: 'no room' };
+      const taken = App.occupiedKeys();
+      let ok = true, why = '';
+      if (holes.some(h => taken.has(h.row + ':' + h.col))) { ok = false; why = 'a hole is taken'; }
+      else if (App.overlapsPart('esp32', holeA, holeB)) { ok = false; why = 'it would sit on another part'; }
+      return { holeA, holeB, holes, ok, why };
     }
 
     // ── Drag detection ──────────────────────────────────────
@@ -214,7 +227,10 @@
         mark(markB, fp.holeB, color);
         setGhost(type, fp.holeA, fp.holeB, fp.ok);
         const a = App.formatHole(fp.holeA);
-        label(fp.holeB ? `${a} → ${App.formatHole(fp.holeB)}${fp.ok ? '' : '  ·  ' + fp.why}` : `${a}  ·  no room`);
+        const span = fp.holes
+          ? `${a}–${App.formatHole(fp.holes[14])} · ${App.formatHole(fp.holeB)}–${App.formatHole(fp.holes[29])}`
+          : `${a} → ${fp.holeB ? App.formatHole(fp.holeB) : ''}`;
+        label(fp.holeB ? `${span}${fp.ok ? '' : '  ·  ' + fp.why}` : `${a}  ·  no room`);
         return;
       }
 
@@ -235,9 +251,10 @@
           label(t.pinMesh.userData.pinIndex === 0 ? 'battery +' : 'battery −');
         } else {
           mark(markA, t.hole, GOOD);
-          label(t.movedFrom
+          const pin = App.esp32PinOnStrip(t.hole);
+          label((t.movedFrom
             ? `${App.formatHole(t.hole)}  ·  ${App.formatHole(t.movedFrom)} is taken, same strip`
-            : App.formatHole(t.hole));
+            : App.formatHole(t.hole)) + (pin ? `  ·  ESP32 ${pin}` : ''));
         }
         updateTempWire(t);
         return;
@@ -296,6 +313,7 @@
         if (type === 'led')      App.placeLED(fp.holeA, fp.holeB);
         if (type === 'buzzer')   App.placeBuzzer(fp.holeA, fp.holeB);
         if (type === 'button')   App.placeButton(fp.holeA, fp.holeB);
+        if (type === 'esp32')    App.placeESP32(fp.holeA, fp.holeB);
         clearGhost();
         handleHover(e);
         return;

@@ -104,3 +104,17 @@ test('a wire to an on-board pin lands beside the lead, on the same strip', () =>
   assert.equal(BM.stripOf(w.from.hole), 'top_7');
   assert.notEqual(BM.formatHole(w.from.hole), 'c8');
 });
+
+test('an ESP32 on the board holds its 30 holes, so the AI cannot place into them', () => {
+  const holes = [];
+  for (const row of ['i', 'b']) for (let c = 5; c < 20; c++) holes.push(row + c);
+  const board = BM.fromExport({ components: [{ type: 'esp32', holes, values: {} }], wires: [] });
+  assert.equal(board.components.length, 1);
+  assert.equal(BM.idsOf(board)[0], 'esp32_0');
+  const r = BM.applyActions(board, [{ tool: 'place_resistor', holeA: 'b6', holeB: 'b10' }]);
+  const res = r.board.components[1];
+  if (res) for (const h of res.holes) assert.ok(!holes.includes(BM.formatHole(h)));
+  const { components, wires } = BM.toSim(board, Sim.PROPS);
+  assert.equal(components[0].pins.length, 30);
+  assert.equal(Sim.analyze(components, wires).status, 'no-battery');
+});
