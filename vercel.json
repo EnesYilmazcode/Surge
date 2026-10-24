@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/surge/workbench.ts": {
+      "maxDuration": 60
+    }
+  }
+}

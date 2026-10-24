@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { SurgeOptions } from './surge-api'
+import type { SurgeOptions } from './surge-api.js'
 
 const kinds = ['resistor', 'led', 'battery', 'buzzer', 'button']
 const tools = ['place_resistor', 'place_led', 'place_buzzer', 'place_button', 'place_battery', 'add_wire', 'remove_component', 'remove_wire', 'delete_all']
@@ -83,15 +83,23 @@ function json(response: ServerResponse, status: number, body: unknown) {
   response.end(JSON.stringify(body))
 }
 
+// Vercel may read the body before the handler runs and expose it as request.body.
+async function readInput(request: IncomingMessage): Promise<string> {
+  const parsed = (request as IncomingMessage & { body?: unknown }).body
+  if (typeof parsed === 'string') return parsed
+  if (parsed && typeof parsed === 'object') return JSON.stringify(parsed)
+  let input = ''
+  for await (const chunk of request) { input += chunk.toString(); if (input.length > 500000) throw new Error() }
+  return input
+}
+
 export function createWorkbenchHandler(options: SurgeOptions) {
   return async (request: IncomingMessage, response: ServerResponse) => {
     if (request.method !== 'POST') { json(response, 405, { error: 'Method not allowed.' }); return }
     if (!request.headers['content-type']?.startsWith('application/json')) { json(response, 415, { error: 'Send application/json.' }); return }
     let body: { message: string; markdown: string; history?: Array<{ role: string; text: string }>; board: { components: Array<{ type: string; id?: string }>; wires: unknown[] } }
     try {
-      let input = ''
-      for await (const chunk of request) { input += chunk.toString(); if (input.length > 500000) throw new Error() }
-      body = JSON.parse(input)
+      body = JSON.parse(await readInput(request))
       if (!body || typeof body.message !== 'string' || !body.message.trim() || body.message.length > 6000 || typeof body.markdown !== 'string' || body.markdown.length > 250000) throw new Error()
       if (!body.board || !Array.isArray(body.board.components) || body.board.components.length > 300 || !Array.isArray(body.board.wires) || body.board.wires.length > 1000) throw new Error()
       if (body.board.components.some((part) => !part || typeof part.type !== 'string' || !kinds.includes(part.type.toLowerCase()) || (part.id !== undefined && typeof part.id !== 'string'))) throw new Error()
