@@ -37,12 +37,16 @@ function nearest(stops: number[]): number {
   return best
 }
 
+// One move at a time. Released by a timer, not by Lenis's onComplete, because
+// a wheel event can cut a Lenis move short without calling it.
+const STEP_MS = 1100
 let busy = false
 
 function goTo(y: number) {
   if (lenis) {
     busy = true
-    lenis.scrollTo(y, { duration: 1.1, onComplete: () => { busy = false } })
+    setTimeout(() => { busy = false }, STEP_MS + 80)
+    lenis.scrollTo(y, { duration: STEP_MS / 1000 })
   } else {
     window.scrollTo(0, y)
   }
@@ -60,15 +64,18 @@ function step(dir: number) {
 // going, so the next checkpoint only counts after a short pause.
 let lastWheel = 0
 if (!touchOnly) {
+  // Capture phase on window, so this runs before Lenis's own wheel listener and
+  // stops it seeing the event. Lenis would otherwise cancel the move in progress.
   window.addEventListener('wheel', e => {
     if (e.ctrlKey) return                  // leave pinch zoom alone
     e.preventDefault()
+    e.stopImmediatePropagation()
     const now = performance.now()
     const newGesture = now - lastWheel > 280
     lastWheel = now
     if (busy || !newGesture || Math.abs(e.deltaY) < 1) return
     step(Math.sign(e.deltaY))
-  }, { passive: false })
+  }, { passive: false, capture: true })
 
   window.addEventListener('keydown', e => {
     const dirs: Record<string, number> = { ArrowDown: 1, PageDown: 1, ArrowUp: -1, PageUp: -1 }
