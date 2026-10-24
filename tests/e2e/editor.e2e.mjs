@@ -175,3 +175,93 @@ test('the board export the chat sends works with the ESP32 and the display on it
   assert.deepEqual(result, { ok: true, types: ['esp32', 'led', 'resistor', 'seg7'], markdown: true });
   await page.close();
 });
+
+test('the chat sends the sketch, proposes a code change and a value change, and Enter applies both', async () => {
+  const page = await openEditor(browser);
+  await buildLedCircuit(page, PIN.D2);
+  const sketch = await page.evaluate(() => App.state.components.find(c => c.type === 'esp32').values.sketch);
+  const code = 'const int LED_PIN = 2;\nvoid setup() { pinMode(LED_PIN, OUTPUT); }\nvoid loop() { digitalWrite(LED_PIN, HIGH); delay(100); digitalWrite(LED_PIN, LOW); delay(100); }\n';
+
+  // Answer the chat with a fixed proposal, so the test does not depend on the model
+  let sent = null;
+  await page.setRequestInterception(true);
+  page.on('request', request => {
+    if (!request.url().includes('/api/surge/workbench')) return request.continue();
+    sent = JSON.parse(request.postData());
+    request.respond({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        reply: 'Blink faster, and use a 1 kΩ resistor.',
+        actions: [
+          { tool: 'write_sketch', file: sketch, code },
+          { tool: 'set_value', id: 'resistor_0', resistance: 1000 },
+        ],
+      }),
+    });
+  });
+
+  await page.type('#surge-input', 'Blink faster, and use a 1k resistor');
+  await page.click('#surge-send');
+  await page.waitForFunction(() => document.getElementById('surge-pending-bar').style.display === 'flex', { timeout: 20000 });
+
+  assert.equal(await page.$eval('#surge-pending-count', el => el.textContent), '2 changes ready');
+  assert.deepEqual(sent.board.sketches.map(s => s.name), [sketch], 'the sketch went to the model');
+  assert.equal(await page.evaluate(() => App.getSketch(App.state.components.find(c => c.type === 'esp32').values.sketch)).then(t => t.includes('delay(500)')), true, 'the sketch is unchanged until Enter');
+
+  await page.focus('#surge-input');
+  await page.keyboard.press('Enter');
+  await wait(500);
+
+  assert.equal(await page.evaluate(name => App.getSketch(name), sketch), code);
+  assert.equal(await page.evaluate(() => App.state.components.find(c => c.type === 'resistor').values.resistance), 1000);
+  assert.equal(await page.$eval('#surge-pending-bar', el => el.style.display), 'none');
+  assert.deepEqual(page.errors, []);
+  await page.close();
+});
+
+test('the chat places an ESP32 with its sketch, and wires a named pin to a hole', async () => {
+  const page = await openEditor(browser);
+  const code = 'const int LED_PIN = 2;\nvoid setup() { pinMode(LED_PIN, OUTPUT); }\nvoid loop() { digitalWrite(LED_PIN, HIGH); delay(250); digitalWrite(LED_PIN, LOW); delay(250); }\n';
+  await page.setRequestInterception(true);
+  page.on('request', request => {
+    if (!request.url().includes('/api/surge/workbench')) return request.continue();
+    request.respond({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        reply: 'Added an ESP32 that blinks D2, and wired D2 to b12.',
+        actions: [
+          { tool: 'place_esp32', holeA: 'i30', holeB: 'b30', code },
+          { tool: 'connect_pin', pin: 'esp32_0_D2', to: 'b12', color: 'yellow' },
+        ],
+      }),
+    });
+  });
+  await page.type('#surge-input', 'Add an ESP32 that blinks, and wire D2 to b12');
+  await page.click('#surge-send');
+  await page.waitForFunction(() => document.getElementById('surge-pending-bar').style.display === 'flex', { timeout: 20000 });
+  assert.equal(await page.$eval('#surge-pending-count', el => el.textContent), '2 changes ready');
+  await page.focus('#surge-input');
+  await page.keyboard.press('Enter');
+  await wait(600);
+
+  const result = await page.evaluate(() => {
+    const esp = App.state.components.find(c => c.type === 'esp32');
+    const wire = App.state.wires[0];
+    return {
+      parts: App.state.components.map(c => c.type),
+      sketch: esp ? App.getSketch(esp.values.sketch) : null,
+      wires: App.state.wires.length,
+      wireStartsAtD2: !!wire && wire.startComp === esp && wire.startPinIdx === 26,
+      wireEndsAtHole: !!wire && App.formatHole(wire.endHole) === 'b12',
+    };
+  });
+  assert.deepEqual(result.parts, ['esp32']);
+  assert.equal(result.sketch, code);
+  assert.equal(result.wires, 1);
+  assert.equal(result.wireStartsAtD2, true);
+  assert.equal(result.wireEndsAtHole, true);
+  assert.deepEqual(page.errors, []);
+  await page.close();
+});

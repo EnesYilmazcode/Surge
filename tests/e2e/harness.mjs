@@ -4,7 +4,9 @@
 // Chrome is found through CHROME_PATH, or at the usual install locations.
 
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, openSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import puppeteer from 'puppeteer-core';
@@ -26,7 +28,7 @@ export const wait = ms => sleep(ms);
 export async function startServer() {
   const vite = fileURLToPath(new URL('../../node_modules/vite/bin/vite.js', import.meta.url));
   const child = spawn(process.execPath, [vite, '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'],
-    { cwd: ROOT, stdio: 'ignore' });
+    { cwd: ROOT, stdio: ['ignore', openSync(join(tmpdir(), 'surge-e2e-server.log'), 'a'), 'inherit'] });
   for (let i = 0; i < 120; i++) {
     try {
       const res = await fetch(`${BASE}/app.html`);
@@ -52,6 +54,8 @@ export async function startBrowser() {
 export async function openEditor(browser, path = '/app.html') {
   const page = await browser.newPage();
   await page.setViewport({ width: 1440, height: 900 });
+  // Each test starts with no saved sketches or circuits from the tests before it
+  await page.evaluateOnNewDocument(() => { try { localStorage.clear(); } catch { /* storage blocked */ } });
   page.errors = [];
   page.on('pageerror', e => page.errors.push(e.message));
   await page.goto(BASE + path, { waitUntil: 'networkidle0', timeout: 60000 });
