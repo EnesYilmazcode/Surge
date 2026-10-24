@@ -57,7 +57,8 @@
           result[side + 'PinIdx'] = -1;
         } else {
           const index = w[side + 'CompIdx'], pin = w[side + 'PinIdx'];
-          if (!Number.isInteger(index) || index < 0 || index >= components.length || ![0, 1].includes(pin)) throw new Error('Wire references a missing component pin.');
+          const pins = components[index]?.type === 'esp32' ? 30 : 2;
+          if (!Number.isInteger(index) || index < 0 || index >= components.length || !Number.isInteger(pin) || pin < 0 || pin >= pins) throw new Error('Wire references a missing component pin.');
           result[side + 'Hole'] = null;
           result[side + 'CompIdx'] = index;
           result[side + 'PinIdx'] = pin;

@@ -197,6 +197,7 @@
       }
       const hole = holeUnderRay();
       if (!hole) return null;
+      if (App.underBoard(hole)) return { hole, blocked: true };
       const free = App.isHoleFree(hole) ? hole : App.freeHoleOnStrip(hole);
       if (!free) return { hole, full: true };
       return { world: free.world.clone(), holeRef: { col: free.col, row: free.row }, pinMesh: null,
@@ -246,9 +247,18 @@
           updateTempWire(null);
           return;
         }
+        if (t.blocked) {
+          mark(markA, t.hole, BAD);
+          label(`${App.formatHole(t.hole)}  ·  under the ESP32, wire to its pins`);
+          updateTempWire(null);
+          return;
+        }
         if (t.pin) {
           mark(markA, { x: t.world.x, z: t.world.z }, PIN, t.world.y + 0.01);
-          label(t.pinMesh.userData.pinIndex === 0 ? 'battery +' : 'battery −');
+          const { ownerComp: owner, pinIndex: idx } = t.pinMesh.userData;
+          label(owner.type === 'esp32'
+            ? `ESP32 ${App.ESP32_PINS[idx]}`
+            : (idx === 0 ? 'battery +' : 'battery −'));
         } else {
           mark(markA, t.hole, GOOD);
           const pin = App.esp32PinOnStrip(t.hole);
@@ -337,7 +347,7 @@
 
       if (mode === 'wire') {
         const t = wireTarget();
-        if (!t || t.full) return;
+        if (!t || t.full || t.blocked) return;
         const end = { world: t.world, holeRef: t.holeRef, pinMesh: t.pinMesh };
         if (!state.wireStart) {
           state.wireStart = end;

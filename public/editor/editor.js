@@ -265,6 +265,7 @@
     group.traverse(o => {
       if (!o.isMesh || !o.geometry) return;
       if (o.geometry.type === 'TubeGeometry') return;           // leads and wires
+      if (o.userData.accessory) return;                         // the ESP32's USB supply
       o.geometry.computeBoundingBox();
       box.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld));
     });
@@ -405,7 +406,6 @@
     pushHistory();
     const { group, pins } = App.buildESP32(holeA, holeB);
     App.scene.add(group);
-    App.snapIn(group, 1.1);
     const record = {
       type: 'esp32', group, pins, pinMeshes: [],
       values: App.componentValues('esp32', values),
@@ -416,9 +416,22 @@
       if (!record.values.sketch) record.values.sketch = App.claimSketch();
       else App.ensureSketch(record.values.sketch);
     }
-    addPinMarkers(record);
+    addPinMarkers(record);      // before the drop, so the targets sit at rest
+    App.snapIn(group, 1.1);
     state.components.push(record);
     refreshCounts();
+  };
+
+  // Holes under an ESP32's body are covered by the board, so no wire can
+  // reach them: the rows between its two headers, within its length.
+  const UNDER_ROWS = new Set(['c', 'd', 'e', 'f', 'g', 'h']);
+  App.underBoard = function (hole) {
+    if (!hole || !UNDER_ROWS.has(hole.row)) return false;
+    return state.components.some(c => {
+      if (c.type !== 'esp32' || !c.holeRefs) return false;
+      const cols = c.holeRefs.map(h => h.col);
+      return hole.col >= Math.min(...cols) - 3 && hole.col <= Math.max(...cols) + 3;
+    });
   };
 
   // The ESP32 pin sharing a hole's strip, for hover labels: "D23", or null.
@@ -519,9 +532,28 @@
   // off-board pins (the battery terminals) need something to click. The
   // target is invisible; wire mode shows a ring on it.
   const PIN_GEO = new THREE.SphereGeometry(0.34, 16, 12);
+  const PAD_GEO = new THREE.SphereGeometry(0.18, 12, 8);   // an ESP32 header pin, tighter so neighbours stay apart
   const PIN_MAT = new THREE.MeshBasicMaterial({ visible: false });
 
+  // An ESP32's header pins are its edge terminals. Each has a target on its
+  // top solder joint, so a wire ends on the named pin, not a hole beside it.
+  function addBoardPinMarkers(record) {
+    record.group.updateMatrixWorld(true);
+    record.group.userData.pinTops.forEach((local, idx) => {
+      const world = record.group.localToWorld(local.clone());
+      const pm = new THREE.Mesh(PAD_GEO, PIN_MAT);
+      pm.position.copy(world);
+      pm.userData.ownerComp   = record;
+      pm.userData.pinIndex    = idx;
+      pm.userData.world       = world.clone();
+      pm.userData.isWireStart = false;
+      App.scene.add(pm);
+      record.pinMeshes.push(pm);
+    });
+  }
+
   function addPinMarkers(record) {
+    if (record.type === 'esp32') return addBoardPinMarkers(record);
     if (record.holeRefs) return;
     record.pins.forEach((worldPos, idx) => {
       const pm = new THREE.Mesh(PIN_GEO, PIN_MAT);

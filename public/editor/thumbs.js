@@ -13,7 +13,11 @@
     battery:  () => App.buildBattery(0, 0).group,
     buzzer:   () => App.buildBuzzer({ x: -0.4, z: 0 }, { x: 0.4, z: 0 }).group,
     button:   () => App.buildButton({ x: -0.6, z: 0 }, { x: 0.6, z: 0 }).group,
-    esp32:    () => App.buildESP32({ x: -1.75, z: 0 }, { x: 1.75, z: 0 }).group,
+    esp32:    () => {   // the board alone: the USB supply is not part of the icon
+      const g = App.buildESP32({ x: -1.75, z: 0 }, { x: 1.75, z: 0 }).group;
+      g.children = g.children.filter(c => !c.userData.accessory);
+      return g;
+    },
     wire:     () => {
       const g = new THREE.Group();
       g.add(App.buildWire(new THREE.Vector3(-0.9, 0, 0.25), new THREE.Vector3(0.9, 0, -0.25), 0xef4444));
