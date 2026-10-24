@@ -1,4 +1,8 @@
 (function(App) {
+  const EXAMPLES = [
+    { name: 'LED workbench', detail: 'A battery, resistor and LED', file: '/editor/demo.surge' },
+    { name: 'ESP32 blink', detail: 'An ESP32 blinking an LED, with its sketch', file: '/editor/demo_esp32.surge' },
+  ];
   const dialog = document.createElement('dialog');
   dialog.className = 'project-dialog';
   document.body.append(dialog);
@@ -9,6 +13,30 @@
     dialog.append(heading);
     const list = document.createElement('div');
     list.className = 'project-list';
+    const examples = document.createElement('div');
+    examples.className = 'project-list';
+    for (const example of EXAMPLES) {
+      const button = document.createElement('button');
+      button.className = 'saved-project';
+      const title = document.createElement('strong');
+      title.textContent = example.name;
+      const detail = document.createElement('span');
+      detail.textContent = example.detail;
+      button.append(title, detail);
+      button.onclick = () => {
+        fetch(example.file).then(r => r.json()).then(data => {
+          delete data.id;
+          App.loadCircuitData(data);
+          dialog.close();
+        }).catch(() => App.setHint('Could not load the example', 3000));
+      };
+      examples.append(button);
+    }
+    const exampleLabel = document.createElement('h3');
+    exampleLabel.textContent = 'Examples';
+    const savedLabel = document.createElement('h3');
+    savedLabel.textContent = 'Saved in this browser';
+    dialog.append(exampleLabel, examples, savedLabel);
     let projects = [];
     try { projects = JSON.parse(localStorage.getItem('surge_local_projects') || '[]'); } catch {}
     if (!Array.isArray(projects)) projects = [];

@@ -710,6 +710,7 @@
       version:   1,
       name,
       thumbnail: captureIsometricThumb(),
+      code:      App.getSketch ? App.getSketch() : undefined,
       components: state.components.map((c, i) => ({
         type:     c.type,
         id:       c.type + '_' + i,
@@ -757,6 +758,7 @@
       if (nf) nf.textContent = data.name;
     }
     if (data.id) state.circuitId = data.id;
+    if (typeof data.code === 'string' && App.setSketch) App.setSketch(data.code);
 
     App.setHint(`Opened "${data.name || 'circuit'}"`, 2000);
   };
@@ -1165,6 +1167,7 @@
       updatedAt:  new Date().toISOString(),
       components: board.components,
       wires:      board.wires,
+      code:       App.getSketch ? App.getSketch() : undefined,
     };
 
     const projects = lsProjects();

@@ -1,0 +1,192 @@
+{
+  "version": 1,
+  "name": "ESP32 blink",
+  "components": [
+    {
+      "type": "esp32",
+      "holeRefs": [
+        {
+          "col": 4,
+          "row": "i"
+        },
+        {
+          "col": 5,
+          "row": "i"
+        },
+        {
+          "col": 6,
+          "row": "i"
+        },
+        {
+          "col": 7,
+          "row": "i"
+        },
+        {
+          "col": 8,
+          "row": "i"
+        },
+        {
+          "col": 9,
+          "row": "i"
+        },
+        {
+          "col": 10,
+          "row": "i"
+        },
+        {
+          "col": 11,
+          "row": "i"
+        },
+        {
+          "col": 12,
+          "row": "i"
+        },
+        {
+          "col": 13,
+          "row": "i"
+        },
+        {
+          "col": 14,
+          "row": "i"
+        },
+        {
+          "col": 15,
+          "row": "i"
+        },
+        {
+          "col": 16,
+          "row": "i"
+        },
+        {
+          "col": 17,
+          "row": "i"
+        },
+        {
+          "col": 18,
+          "row": "i"
+        },
+        {
+          "col": 4,
+          "row": "b"
+        },
+        {
+          "col": 5,
+          "row": "b"
+        },
+        {
+          "col": 6,
+          "row": "b"
+        },
+        {
+          "col": 7,
+          "row": "b"
+        },
+        {
+          "col": 8,
+          "row": "b"
+        },
+        {
+          "col": 9,
+          "row": "b"
+        },
+        {
+          "col": 10,
+          "row": "b"
+        },
+        {
+          "col": 11,
+          "row": "b"
+        },
+        {
+          "col": 12,
+          "row": "b"
+        },
+        {
+          "col": 13,
+          "row": "b"
+        },
+        {
+          "col": 14,
+          "row": "b"
+        },
+        {
+          "col": 15,
+          "row": "b"
+        },
+        {
+          "col": 16,
+          "row": "b"
+        },
+        {
+          "col": 17,
+          "row": "b"
+        },
+        {
+          "col": 18,
+          "row": "b"
+        }
+      ],
+      "values": {}
+    },
+    {
+      "type": "resistor",
+      "holeRefs": [
+        {
+          "col": 24,
+          "row": "a"
+        },
+        {
+          "col": 28,
+          "row": "a"
+        }
+      ],
+      "values": {
+        "resistance": 470
+      }
+    },
+    {
+      "type": "led",
+      "holeRefs": [
+        {
+          "col": 30,
+          "row": "b"
+        },
+        {
+          "col": 28,
+          "row": "b"
+        }
+      ],
+      "values": {
+        "color": "red",
+        "forwardVoltage": 2,
+        "thresholdCurrent": 0.001,
+        "maxCurrent": 0.02
+      }
+    }
+  ],
+  "wires": [
+    {
+      "startHole": {
+        "col": 15,
+        "row": "e"
+      },
+      "endHole": {
+        "col": 24,
+        "row": "e"
+      },
+      "color": 16498468
+    },
+    {
+      "startHole": {
+        "col": 30,
+        "row": "c"
+      },
+      "endHole": {
+        "col": 17,
+        "row": "e"
+      },
+      "color": 1118481
+    }
+  ],
+  "code": "// Blink an LED wired to GPIO 2 (D2) through a 470 ohm resistor\nconst int LED_PIN = 2;\n\nvoid setup() {\n  pinMode(LED_PIN, OUTPUT);\n}\n\nvoid loop() {\n  digitalWrite(LED_PIN, HIGH);\n  delay(500);\n  digitalWrite(LED_PIN, LOW);\n  delay(500);\n}\n"
+}

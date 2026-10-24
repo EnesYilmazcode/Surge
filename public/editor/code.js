@@ -5,7 +5,7 @@
 //  font and padding so the caret lines up with the coloured text. The sketch
 //  is kept in localStorage.
 //
-//  Exports: App.setView, App.getSketch
+//  Exports: App.setView, App.getSketch, App.setSketch
 // ─────────────────────────────────────────────────────────────
 
 (function (App) {
@@ -160,6 +160,11 @@ void loop() {
     buttons.forEach(b => b.addEventListener('click', () => App.setView(b.dataset.view)));
 
     App.getSketch = () => input.value;
+    App.setSketch = text => {
+      input.value = text;
+      render();
+      persist();
+    };
     render();
   });
 

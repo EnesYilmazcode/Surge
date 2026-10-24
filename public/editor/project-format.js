@@ -63,6 +63,7 @@
       return result;
     });
     const result = { version: 1, name: data.name || 'Untitled', components, wires };
+    if (typeof data.code === 'string' && data.code.length <= 100000) result.code = data.code;
     if (typeof data.id === 'string' && data.id.length <= 120) result.id = data.id;
     if (typeof data.thumbnail === 'string' && /^data:image\/(jpeg|png);base64,/.test(data.thumbnail) && data.thumbnail.length <= 2e6) result.thumbnail = data.thumbnail;
     return result;
