@@ -146,11 +146,6 @@
 
       <div id="rotate-badge"><kbd>R</kbd> rotate</div>
 
-      <div id="empty-state" style="display:none">
-        <div class="empty-title">Empty board</div>
-        <button class="btn-secondary" id="load-demo-btn">Open the demo</button>
-      </div>
-
       <div class="view-tools">
         <button id="clear-all-btn" title="Clear the board" style="display:none" onclick="App.clearAll()">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M9 6V4h6v2"/></svg>
@@ -166,14 +161,8 @@
     <!-- Surge PANEL -->
     <div id="surge-panel">
       <div class="surge-header">
-        <span class="surge-avatar">
-          <svg width="32" height="32" viewBox="0 0 24 24" aria-hidden="true"><path d="M16.2 5.6H9.9L7.4 8.1v1.6l2.3 2.3h4.6l2.3 2.3v1.6l-2.5 2.5H7.8" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16.6" cy="5.6" r="2" fill="#fff"/><circle cx="16.6" cy="5.6" r=".8" fill="#e98b0b"/><circle cx="7.4" cy="18.4" r="2" fill="#fff"/><circle cx="7.4" cy="18.4" r=".8" fill="#e98b0b"/></svg>
-        </span>
-        <div class="surge-title">
-          <div class="surge-name">Surge</div>
-        </div>
         <button id="surge-clear" class="icon-btn" title="New chat" aria-label="New chat">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
         </button>
       </div>
 
@@ -213,6 +202,17 @@
       </div>
     </div>
 
+  </div>
+
+  <!-- Clear Board Modal -->
+  <div id="clear-modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="clear-modal-title">
+    <div class="lpm-card">
+      <div class="lpm-name" id="clear-modal-title">Clear the board?</div>
+      <div class="lpm-btns">
+        <button class="btn-secondary" id="clear-modal-cancel">Cancel</button>
+        <button class="btn-danger" id="clear-modal-confirm">Delete all</button>
+      </div>
+    </div>
   </div>
 
   <!-- Load Preview Modal -->

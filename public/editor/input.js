@@ -373,14 +373,28 @@
     });
 
     // ── Clear All guard ──────────────────────────────────────
+    // The button's inline onclick clears straight away, so stop it here and
+    // ask first in a modal; confirming calls App.clearAll itself.
+    const clearModal = document.getElementById('clear-modal');
+    const closeClearModal = () => { clearModal.style.display = 'none'; };
+    document.getElementById('clear-modal-cancel').addEventListener('click', closeClearModal);
+    document.getElementById('clear-modal-confirm').addEventListener('click', () => {
+      closeClearModal();
+      App.clearAll();
+    });
+    clearModal.addEventListener('click', e => { if (e.target === clearModal) closeClearModal(); });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && clearModal.style.display !== 'none') closeClearModal();
+    });
+
     document.addEventListener('click', e => {
       if (!e.target.closest?.('#clear-all-btn')) return;
       const n = state.components.length + state.wires.length;
       if (!n) return;
-      if (!confirm(`Delete all ${n} item${n === 1 ? '' : 's'} on the board? You can undo this with Ctrl+Z.`)) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
+      e.preventDefault();
+      e.stopPropagation();
+      clearModal.style.display = 'flex';
+      document.getElementById('clear-modal-confirm').focus();
     }, true);
 
     // Tidy up the hover state whenever the mode changes

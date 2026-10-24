@@ -18,24 +18,11 @@
 .surge-header {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
   padding: 12px 12px 12px 14px;
-  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
-.surge-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  color: #fff;
-  background: linear-gradient(145deg, #f59e0b, #d97706);
-  box-shadow: 0 2px 8px rgba(217,119,6,0.3);
-  flex-shrink: 0;
-}
-.surge-title { flex: 1; min-width: 0; }
-.surge-name { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; letter-spacing: -0.2px; }
 
 /* ── Messages ─────────────────────────────────────────────── */
 #surge-messages {

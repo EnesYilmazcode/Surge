@@ -1036,8 +1036,6 @@
     const clearBtn = document.getElementById('clear-all-btn');
     const empty = !state.components.length && !state.wires.length;
     if (clearBtn) clearBtn.style.display = empty ? 'none' : 'flex';
-    const es = document.getElementById('empty-state');
-    if (es) es.style.display = empty && !App.previewing ? 'block' : 'none';
 
     scheduleAutoSave();
   }
@@ -1053,13 +1051,6 @@
   setMode('select');
   animate();
 
-  document.getElementById('load-demo-btn')?.addEventListener('click', () => {
-    fetch('/editor/demo.surge').then(r => r.json()).then(data => {
-      data.name = 'Demo';
-      delete data.id;
-      App.loadCircuitData(data);
-    }).catch(() => App.setHint('Could not load the demo circuit', 2500));
-  });
   refreshCounts();
 
   // Auto-load circuit passed from dashboard via sessionStorage
