@@ -16,8 +16,7 @@
 
   const NAMES = {
     resistor: 'Resistor', led: 'LED', battery: '9 V battery', buzzer: 'Buzzer', button: 'Push button',
-    esp32: 'ESP32 DevKit', wire: 'Jumper wire', capacitor: 'Capacitor', potentiometer: 'Potentiometer',
-    servo: 'Servo', ultrasonic: 'Ultrasonic sensor', transistor: 'Transistor', fan: 'DC fan', seg7: '7-segment display',
+    esp32: 'ESP32 DevKit', wire: 'Jumper wire', seg7: '7-segment display',
   };
 
   const ohms = r => r >= 1000 ? (r / 1000) + ' kΩ' : r + ' Ω';
@@ -40,13 +39,6 @@
     return card;
   }
 
-  function where(item) {
-    if (!item.holeRefs) return 'Off the board';
-    const h = item.holeRefs, f = App.formatHole;
-    if (h.length > 2) return `${f(h[0])}–${f(h[h.length / 2 - 1])}, ${f(h[h.length / 2])}–${f(h[h.length - 1])}`;
-    return h.map(f).join(' → ');
-  }
-
   // The control for a part, as markup. Parts without settings get none.
   function controlsFor(item) {
     if (item.type === 'resistor') {
@@ -64,7 +56,7 @@
         `<span class="insp-note">${item.values.forwardVoltage.toFixed(1)} V</span>`;
     }
     if (item.type === 'esp32' && item.values.sketch) {
-      return `<button class="insp-sketch" data-sketch="${esc(item.values.sketch)}" title="Open ${esc(item.values.sketch)} in the code editor">${ICON.code}${esc(item.values.sketch)}</button>`;
+      return `<button class="insp-sketch" data-sketch="${esc(item.values.sketch)}" title="Edit the sketch" aria-label="Edit the sketch">${ICON.code}</button>`;
     }
     return '';
   }
@@ -74,12 +66,9 @@
     const isWire = kind === 'wire';
     const type = isWire ? 'wire' : item.type;
     let id = '', controls = '';
-    if (isWire) {
-      const [a, b] = App.wireLabels(item);
-      id = `${a || '?'} → ${b || '?'}`;
-    } else {
+    if (!isWire) {
       const ids = App.componentIds();
-      id = `${ids[App.state.components.indexOf(item)]} · ${where(item)}`;
+      id = ids[App.state.components.indexOf(item)] || '';
       controls = controlsFor(item);
     }
     el.innerHTML = `
