@@ -1,7 +1,9 @@
-// Homepage behaviour: checkpoints, smooth scrolling, the scroll progress the 3D
-// scene follows, and cards that rise in as they arrive. Loaded only by index.html.
+// Homepage behaviour: checkpoints, smooth scrolling, which section is on screen,
+// the Press Run sequence, the circuit field, and cards that rise in as they
+// arrive. Loaded only by index.html.
 
 import Lenis from 'lenis'
+import { startCircuitGrid, stopCircuitGrid } from './circuit-grid'
 
 document.documentElement.classList.remove('no-js')
 document.documentElement.classList.add('js')
@@ -10,7 +12,7 @@ const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
 const touchOnly = matchMedia('(pointer: coarse)').matches
 
 // Lenis eases the moves between checkpoints. Wheel smoothing is off, because
-// the wheel is handled below and moves one checkpoint per gesture.
+// the wheel is handled below and moves one checkpoint at a time.
 const lenis = reduceMotion ? null : new Lenis({ duration: 1.2, smoothWheel: false })
 if (lenis) {
   const raf = (time: number) => {
@@ -20,12 +22,16 @@ if (lenis) {
   requestAnimationFrame(raf)
 }
 
+const frame = document.getElementById('stage-frame') as HTMLIFrameElement | null
+const beats = Array.from(document.querySelectorAll<HTMLElement>('.beat'))
+const RUN = 4                        // the section where Run is pressed
+const CLOSING = beats.length - 1     // the last section: the circuit field
+
 // Checkpoints are the top of each section, then the very bottom so the
 // credits can be reached.
 function checkpoints(): number[] {
   const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
-  const tops = Array.from(document.querySelectorAll<HTMLElement>('.beat'))
-    .map(el => Math.min(max, el.getBoundingClientRect().top + window.scrollY))
+  const tops = beats.map(el => Math.min(max, el.getBoundingClientRect().top + window.scrollY))
   return [...tops, max].filter((y, i, all) => i === 0 || y - all[i - 1] > 2)
 }
 
@@ -37,11 +43,92 @@ function nearest(stops: number[]): number {
   return best
 }
 
-// Checkpoints are reached one after another. While the page is moving toward
-// one, the next step counts from that target, so a long scroll keeps going at a
-// steady pace instead of stalling on every stop. Lenis does the easing.
+// ── Sections ─────────────────────────────────────────────────
+
+let section = -1
+
+function sendToScene(name: string, detail?: number) {
+  frame?.contentWindow?.dispatchEvent(new CustomEvent(name, { detail }))
+}
+
+const gridCanvas = document.getElementById('circuit-grid') as HTMLCanvasElement | null
+
+function setSection(next: number) {
+  if (next === section) return
+  const before = section
+  section = next
+  sendToScene('surge-section', next)
+  if (next === RUN) playRun()
+  else if (before === RUN) resetRun()
+  if (next === CLOSING) {
+    document.documentElement.classList.add('grid-on')
+    if (gridCanvas) startCircuitGrid(gridCanvas)
+  } else if (before === CLOSING) {
+    document.documentElement.classList.remove('grid-on')
+    stopCircuitGrid()
+  }
+}
+
+let sectionQueued = false
+function trackSection() {
+  if (sectionQueued) return
+  sectionQueued = true
+  requestAnimationFrame(() => {
+    sectionQueued = false
+    setSection(Math.min(nearest(checkpoints()), CLOSING))
+  })
+}
+
+window.addEventListener('scroll', trackSection, { passive: true })
+
+// ── Press Run ────────────────────────────────────────────────
+// On the Run section a pointing hand comes in, presses the green play button
+// below the LED, and the scene lights the LED. Leaving the section resets it.
+
+const overlay = document.getElementById('run-overlay')
+const playButton = overlay?.querySelector<HTMLElement>('.play') ?? null
+let runTimers: number[] = []
+
+function clearRunTimers() {
+  runTimers.forEach(timer => window.clearTimeout(timer))
+  runTimers = []
+}
+
+function playRun() {
+  if (!overlay || !playButton) return
+  clearRunTimers()
+  overlay.classList.remove('press', 'lit')
+  playButton.classList.remove('pressed', 'lit')
+  void overlay.offsetWidth // restart the hand's move from the corner
+  overlay.classList.add('on')
+  runTimers = [
+    window.setTimeout(() => {
+      overlay.classList.add('press')
+      playButton.classList.add('pressed')
+    }, 1100),
+    window.setTimeout(() => {
+      overlay.classList.remove('press')
+      playButton.classList.remove('pressed')
+      overlay.classList.add('lit')
+      playButton.classList.add('lit')
+      sendToScene('surge-run')
+    }, 1350),
+  ]
+}
+
+function resetRun() {
+  clearRunTimers()
+  overlay?.classList.remove('on', 'press', 'lit')
+  playButton?.classList.remove('pressed', 'lit')
+  sendToScene('surge-stop')
+}
+
+// ── Scrolling by checkpoint ──────────────────────────────────
+
+// One move at a time while Lenis is easing. A move's target is remembered, so
+// a long scroll keeps going at a steady pace instead of stalling on each stop.
 const STEP_MS = 900
-const GAP_MS = 700                 // while the wheel keeps turning, one step per gap
+const GAP_MS = 700                   // while the wheel keeps turning, one step per gap
 let moveId = 0
 let moving = false
 let targetIndex = 0
@@ -52,7 +139,9 @@ function goTo(index: number, stops: number[]) {
   if (lenis) {
     const id = ++moveId
     moving = true
-    setTimeout(() => { if (id === moveId) moving = false }, STEP_MS + 80)
+    window.setTimeout(() => {
+      if (id === moveId) moving = false
+    }, STEP_MS + 80)
     lenis.scrollTo(stops[index], { duration: STEP_MS / 1000 })
   } else {
     window.scrollTo(0, stops[index])
@@ -74,7 +163,7 @@ if (!touchOnly) {
   // Capture phase on window, so this runs before Lenis's own wheel listener and
   // stops it seeing the event. Lenis would otherwise cancel the move in progress.
   window.addEventListener('wheel', e => {
-    if (e.ctrlKey) return                  // leave pinch zoom alone
+    if (e.ctrlKey) return // leave pinch zoom alone
     e.preventDefault()
     e.stopImmediatePropagation()
     const now = performance.now()
@@ -101,82 +190,19 @@ if (!touchOnly) {
   })
 }
 
-const frame = document.getElementById('stage-frame') as HTMLIFrameElement | null
-let queued = false
+// ── The scene ────────────────────────────────────────────────
 
-// Send the page's scroll progress (0 at the top, 1 at the bottom) to the scene.
-function sendProgress() {
-  queued = false
-  if (!frame?.contentWindow) return
-  const max = document.documentElement.scrollHeight - window.innerHeight
-  const p = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0
-  frame.contentWindow.dispatchEvent(new CustomEvent('surge-scroll', { detail: p }))
-}
-
-window.addEventListener('scroll', () => {
-  if (!queued) {
-    queued = true
-    requestAnimationFrame(sendProgress)
-  }
-}, { passive: true })
-
-// The board's first frame lands a moment after the iframe's load event.
+// The board's first frame lands a moment after the iframe's load event. A cached
+// page can finish loading before this module runs, so that case is checked too.
 const showScene = () => {
-  sendProgress()
+  setSection(Math.min(nearest(checkpoints()), CLOSING))
   setTimeout(() => document.documentElement.classList.add('is-loaded'), 300)
 }
 frame?.addEventListener('load', showScene)
-// A cached page can finish loading before this module runs, and then the load
-// event never reaches us. Show the scene in that case, skipping about:blank.
 const doc = frame?.contentDocument
 if (doc && doc.readyState === 'complete' && doc.location.href !== 'about:blank') showScene()
 
-// Press Run: when the Run card is in view, a cursor comes in, presses the green
-// play button, and the scene lights its LED. Scrolling away resets it, so it
-// plays again on the next visit.
-const runCard = document.getElementById('run-card')
-const playButton = runCard?.querySelector<HTMLButtonElement>('.play') ?? null
-let runTimers: number[] = []
-
-function sendToScene(name: string) {
-  frame?.contentWindow?.dispatchEvent(new CustomEvent(name))
-}
-
-function playRun() {
-  if (!runCard || !playButton) return
-  runCard.classList.add('go')
-  runTimers = [
-    window.setTimeout(() => {
-      playButton.classList.add('pressed')
-      runCard.classList.add('clicked')
-    }, 1000),
-    window.setTimeout(() => {
-      playButton.classList.remove('pressed')
-      playButton.classList.add('lit')
-      runCard.classList.remove('clicked')
-      runCard.classList.add('lit')
-      sendToScene('surge-run')
-    }, 1150),
-  ]
-}
-
-function resetRun() {
-  runTimers.forEach(timer => window.clearTimeout(timer))
-  runTimers = []
-  runCard?.classList.remove('go', 'clicked', 'lit')
-  playButton?.classList.remove('pressed', 'lit')
-  sendToScene('surge-stop')
-}
-
-if (runCard && 'IntersectionObserver' in window) {
-  const watchRun = new IntersectionObserver(entries => {
-    for (const entry of entries) {
-      if (entry.isIntersecting) playRun()
-      else resetRun()
-    }
-  }, { threshold: 0.6 })
-  watchRun.observe(runCard)
-}
+// ── Cards ────────────────────────────────────────────────────
 
 // Cards rise in as they enter the screen.
 if ('IntersectionObserver' in window) {
