@@ -45,10 +45,47 @@
     App.finishWire(to);
   }
 
+  const easeOut = k => 1 - Math.pow(1 - k, 3);
+
+  // Run step(k) from 0 to 1 over `ms`, once per frame.
+  const tween = (ms, step) => new Promise(done => {
+    const t0 = performance.now();
+    const tick = () => {
+      const k = Math.min(1, (performance.now() - t0) / ms);
+      step(k);
+      if (k === 1) { App.removeTicker(tick); done(); }
+    };
+    App.addTicker(tick);
+  });
+
+  // Keep the camera on a ring around the board. Angle is in radians.
+  function orbit(angle, radius, height) {
+    const t = App.controls.target;
+    App.camera.position.set(t.x + radius * Math.sin(angle), height, t.z + radius * Math.cos(angle));
+    App.camera.lookAt(t);
+  }
+
+  // The board drops in while the camera spins, then the spin slows to rest
+  // at an angle. The derivative of easeOut is zero at the end, so it settles.
+  async function intro(board) {
+    const rest = board.position.y;
+    const settle = 0.6;
+    await tween(3400, k => {
+      const e = easeOut(k);
+      board.position.y = rest + 7 * (1 - e);
+      orbit(settle - 5.5 * (1 - e), 30, 16);
+    });
+  }
+
   async function run(demo) {
     const bb = App.state.breadboard;
+    // The board sits to the right of the homepage text, so shift the view left.
+    App.controls.target.x = App.camera.aspect > 1.2 ? -3.5 : 0;
+    App.controls.enabled = false;
     for (;;) {
       App.clearAll();
+      if (calm) orbit(0.6, 30, 16);
+      else await intro(bb.group);
       await wait(STEP_MS);
 
       const parts = [];
@@ -73,8 +110,6 @@
   fetch('/editor/demo.surge')
     .then(r => r.json())
     .then(demo => {
-      App.controls.autoRotate = !calm;
-      App.controls.autoRotateSpeed = 0.9;
       run(demo);
     })
     .catch(() => {});
