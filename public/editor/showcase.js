@@ -72,7 +72,7 @@
     // Each event is a close-up on one piece. `until` holds a wider view for
     // several checkpoints, as when the jumpers draw out from the battery.
     const EVENTS = [
-      { p: PART_AT[0], look: BATTERY,  r: 12, h: 4 },        // battery: its label faces the camera
+      { p: PART_AT[0], look: BATTERY,  r: 14, h: 6 },        // battery: its label faces the camera, all of it in shot
       { p: PART_AT[1], look: RESISTOR, r: 7,  h: 3.5 },
       { p: PART_AT[2], look: LED,      r: 7,  h: 3.5 },
       { p: WIRE_AT[0], look: LOOK,     r: 30, h: 11, until: WIRE_AT[3] + 0.02 },
