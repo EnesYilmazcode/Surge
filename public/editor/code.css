@@ -90,10 +90,12 @@
 .code-input {
   resize: none;
   outline: none;
+  box-shadow: none;
   background: transparent;
   color: transparent;
   caret-color: #f3f4f6;
 }
+.code-input:focus-visible { box-shadow: none; }
 .code-input::selection { background: rgba(217, 119, 6, 0.38); color: transparent; }
 .code-highlight { overflow: hidden; }
 
