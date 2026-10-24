@@ -1,0 +1,17 @@
+/* Homepage preview: app.html?hero shows only the 3D board, edge to edge. */
+html.hero #topbar,
+html.hero #sidebar,
+html.hero #surge-panel,
+html.hero #hint-box,
+html.hero #hole-label,
+html.hero #rotate-badge,
+html.hero #empty-state,
+html.hero #clear-all-btn,
+html.hero #reset-cam-btn,
+html.hero #load-preview-modal {
+  display: none !important;
+}
+html.hero,
+html.hero body {
+  overflow: hidden;
+}
