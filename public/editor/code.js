@@ -274,6 +274,17 @@ void loop() {
     App.hasSketch = name => !!find(name);
     App.sketchFiles = () => files.map(f => ({ name: f.name, code: f.code }));
 
+    // The AI's edit: replace one file's text. The open file refreshes in place.
+    App.writeSketch = function (name, code) {
+      const file = find(name);
+      if (!file) return false;
+      file.code = code;
+      delete file.fallback;
+      persist();
+      if (files[active] === file) { input.value = code; render(); }
+      return true;
+    };
+
     // A file with this name that was just deleted comes back with its text.
     App.addSketch = function (name, code) {
       if (code == null && name && trash.has(name)) { code = trash.get(name); trash.delete(name); }

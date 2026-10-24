@@ -1,7 +1,7 @@
 (function(root) {
   'use strict';
   // Socket count per part. The battery sits off the board and has none.
-  const PIN_COUNT = { resistor: 2, led: 2, buzzer: 2, button: 2, esp32: 30, capacitor: 2, potentiometer: 3, servo: 3, ultrasonic: 4, transistor: 3, fan: 2, seg7: 10 };
+  const PIN_COUNT = { resistor: 2, led: 2, buzzer: 2, button: 2, esp32: 30, seg7: 10 };
   const types = new Set([...Object.keys(PIN_COUNT), 'battery']);
   const fileName = /^[\w\-. ]{1,40}$/;
   const rows = new Set(['a','b','c','d','e','f','g','h','i','j','tp','tn','bn','bp']);

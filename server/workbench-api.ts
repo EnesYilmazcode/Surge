@@ -1,13 +1,18 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { SurgeOptions } from './surge-api.js'
 
-const kinds = ['resistor', 'led', 'battery', 'buzzer', 'button']
-const tools = ['place_resistor', 'place_led', 'place_buzzer', 'place_button', 'place_battery', 'add_wire', 'remove_component', 'remove_wire', 'delete_all']
+const kinds = ['resistor', 'led', 'battery', 'buzzer', 'button', 'esp32']
+const tools = ['place_resistor', 'place_led', 'place_buzzer', 'place_button', 'place_battery', 'add_wire', 'remove_component', 'remove_wire', 'delete_all', 'write_sketch', 'set_value', 'place_esp32', 'connect_pin']
+// The ESP32 DevKit's pins, in header order (EN ... VIN, then D23 ... 3V3)
+const ESP32_PINS = ['EN', 'VP', 'VN', 'D34', 'D35', 'D32', 'D33', 'D25', 'D26', 'D27', 'D14', 'D12', 'D13', 'GND', 'VIN',
+  'D23', 'D22', 'TX0', 'RX0', 'D21', 'D19', 'D18', 'D5', 'TX2', 'RX2', 'D4', 'D2', 'D15', 'GND', '3V3']
+const ledColors = ['red', 'yellow', 'green', 'blue', 'white']
+const SKETCH_LIMIT = 20000
 const holePattern = /^(?:[a-j]|(?:tp|tn|bn|bp)_)([1-9]|[1-4][0-9]|50)$/
 const pinPattern = /^(resistor|led|battery|buzzer|button)_(\d+)_pin([01])$/
 const colors = ['red', 'yellow', 'green', 'blue', 'black', 'white']
 
-export function validateWorkbenchActions(actions: unknown, board: { components: Array<{ type: string; id?: string }> }) {
+export function validateWorkbenchActions(actions: unknown, board: { components: Array<{ type: string; id?: string }>; sketches?: Array<{ name: string; code: string }> }) {
   if (!Array.isArray(actions) || actions.length > 50) throw new Error('Invalid action list.')
   const counts = Object.fromEntries(kinds.map((kind) => [kind, board.components.filter((part) => part.type.toLowerCase() === kind).length]))
   for (const action of actions) {
@@ -20,7 +25,7 @@ export function validateWorkbenchActions(actions: unknown, board: { components: 
     }
     if (action.tool === 'delete_all') { for (const kind of kinds) counts[kind] = 0 }
     else if (action.tool === 'place_battery') counts.battery++
-    else if (action.tool.startsWith('place_')) {
+    else if (action.tool.startsWith('place_') && action.tool !== 'place_esp32') {
       if (typeof action.holeA !== 'string' || typeof action.holeB !== 'string' || !holePattern.test(action.holeA) || !holePattern.test(action.holeB) || action.holeA === action.holeB) throw new Error('Invalid component placement.')
       counts[action.tool.slice(6)]++
     } else if (action.tool === 'add_wire' || action.tool === 'remove_wire') {
@@ -30,6 +35,30 @@ export function validateWorkbenchActions(actions: unknown, board: { components: 
       const match = typeof action.id === 'string' && action.id.match(/^(resistor|led|battery|buzzer|button)_(\d+)$/)
       if (!match || Number(match[2]) >= counts[match[1]]) throw new Error('Invalid component reference.')
       counts[match[1]]--
+    } else if (action.tool === 'write_sketch') {
+      // The whole text of one sketch file the board sent; never a partial edit
+      const known = typeof action.file === 'string' && (board.sketches || []).some((s) => s.name === action.file)
+      if (!known || typeof action.code !== 'string' || action.code.length > SKETCH_LIMIT || action.code.includes('\0')) throw new Error('Invalid sketch edit.')
+    } else if (action.tool === 'place_esp32') {
+      // holeA is the hole in row i and holeB the hole in row b of one column, 1 to 35
+      const column = (value: unknown) => typeof value === 'string' && /^[ib]([1-9]|[12][0-9]|3[0-5])$/.test(value)
+      if (!column(action.holeA) || !column(action.holeB) || action.holeA[0] !== 'i' || action.holeB[0] !== 'b' || action.holeA.slice(1) !== action.holeB.slice(1)) throw new Error('Invalid ESP32 placement.')
+      if (action.code !== undefined && (typeof action.code !== 'string' || action.code.length > SKETCH_LIMIT || action.code.includes('\0'))) throw new Error('Invalid sketch edit.')
+      counts.esp32++
+    } else if (action.tool === 'connect_pin') {
+      // A pin of an ESP32 on the board, to a breadboard hole
+      const match = typeof action.pin === 'string' && action.pin.match(/^esp32_(\d+)_([A-Za-z0-9]+)$/)
+      if (!match || Number(match[1]) >= counts.esp32 || !ESP32_PINS.includes(match[2])) throw new Error('Invalid ESP32 pin.')
+      if (typeof action.to !== 'string' || !holePattern.test(action.to)) throw new Error('Invalid wire endpoint.')
+      if (!colors.includes(action.color)) throw new Error('Invalid wire color.')
+    } else if (action.tool === 'set_value') {
+      // A resistor's resistance in ohms, or an LED's colour
+      const match = typeof action.id === 'string' && action.id.match(/^(resistor|led)_(\d+)$/)
+      if (!match || Number(match[2]) >= counts[match[1]]) throw new Error('Invalid part reference.')
+      const hasOhms = action.resistance !== undefined, hasColour = action.color !== undefined
+      if (!hasOhms && !hasColour) throw new Error('Nothing to set.')
+      if (hasOhms && (match[1] !== 'resistor' || !(action.resistance > 0 && action.resistance <= 1e9))) throw new Error('Invalid resistance.')
+      if (hasColour && (match[1] !== 'led' || !ledColors.includes(action.color))) throw new Error('Invalid colour.')
     }
   }
   return actions
@@ -56,6 +85,14 @@ const schema = {
       action('remove_wire', { from: string, to: string }, ['from', 'to']),
       action('remove_component', { id: string }, ['id']),
       action('delete_all'),
+      action('write_sketch', { file: string, code: string }, ['file', 'code']),
+      action('place_esp32', { holeA: string, holeB: string, code: string }, ['holeA', 'holeB']),
+      action('connect_pin', { pin: string, to: string, color: { type: 'string', enum: colors } }, ['pin', 'to', 'color']),
+      action('set_value', {
+        id: string,
+        resistance: { type: 'number', minimum: 1, maximum: 1000000000 },
+        color: { type: 'string', enum: ledColors },
+      }, ['id']),
     ] } },
   },
   required: ['reply', 'actions'],
@@ -76,6 +113,9 @@ Connect both battery terminals explicitly: e.g. battery_0_pin0 -> tp_3, battery_
 For a simple LED circuit, use resistor a3-a7, LED b9-b7 (cathode b9, anode b7), then wire tp_3-a3, a9-tn_9 and both battery terminals to the rails.
 All add_wire endpoints must resolve to existing or earlier proposed parts. Use red, yellow, green, blue, black or white.
 The DC solver supports resistor networks, LED forward voltage and button switches. It does not simulate arbitrary ICs or time-domain electronics.
+Sketches: the board lists its ESP32 sketch files under board.sketches, each with its full text. To change code, return write_sketch with the file name and the whole new text, keeping what the user did not ask to change. Sketches are Arduino C++. A sketch drives a pin by its GPIO number, and a wire to a pin is labelled with its name: esp32_0_D2 is GPIO 2. Keep pinMode and digitalWrite on the pins the wires use.
+Values: set_value changes a resistor's resistance in ohms (resistor_0) or an LED's colour (led_0).
+ESP32: place_esp32 puts an ESP32 DevKit on the board. holeA is i<column> and holeB is b<column> for one column from 1 to 35, and its 30 pins run along the columns from there. Its sketch is the optional code field, a whole Arduino C++ file. connect_pin wires a pin to a breadboard hole: pin is esp32_<n>_<NAME> (n counts ESP32s from 0), where NAME is one of ${ESP32_PINS.join(', ')}; to is a hole such as b12 or a7. Pin names are the ones a sketch uses: a wire to D2 is GPIO 2.
 Changes are previewed and applied by the user; never claim they are already applied. Keep replies practical and concise.`
 
 function json(response: ServerResponse, status: number, body: unknown) {
@@ -97,13 +137,14 @@ export function createWorkbenchHandler(options: SurgeOptions) {
   return async (request: IncomingMessage, response: ServerResponse) => {
     if (request.method !== 'POST') { json(response, 405, { error: 'Method not allowed.' }); return }
     if (!request.headers['content-type']?.startsWith('application/json')) { json(response, 415, { error: 'Send application/json.' }); return }
-    let body: { message: string; markdown: string; history?: Array<{ role: string; text: string }>; board: { components: Array<{ type: string; id?: string }>; wires: unknown[] } }
+    let body: { message: string; markdown: string; history?: Array<{ role: string; text: string }>; board: { components: Array<{ type: string; id?: string }>; wires: unknown[]; sketches?: Array<{ name: string; code: string }> } }
     try {
       body = JSON.parse(await readInput(request))
       if (!body || typeof body.message !== 'string' || !body.message.trim() || body.message.length > 6000 || typeof body.markdown !== 'string' || body.markdown.length > 250000) throw new Error()
       if (!body.board || !Array.isArray(body.board.components) || body.board.components.length > 300 || !Array.isArray(body.board.wires) || body.board.wires.length > 1000) throw new Error()
       // Any part may be on the board as context; the model only edits the kinds it knows.
       if (body.board.components.some((part) => !part || typeof part.type !== 'string' || (part.id !== undefined && typeof part.id !== 'string'))) throw new Error()
+      if (body.board.sketches !== undefined && (!Array.isArray(body.board.sketches) || body.board.sketches.length > 8 || body.board.sketches.some((s) => !s || typeof s.name !== 'string' || s.name.length > 40 || typeof s.code !== 'string' || s.code.length > SKETCH_LIMIT))) throw new Error()
       if (body.history !== undefined && (!Array.isArray(body.history) || body.history.length > 12 || body.history.some((entry) => !entry || !['user', 'model'].includes(entry.role) || typeof entry.text !== 'string' || entry.text.length > 16000))) throw new Error()
     } catch { json(response, 400, { error: 'Invalid board or message. Your circuit has not changed.' }); return }
     if (!options.apiKey) { json(response, 503, { error: 'Connect a Gemini key on the local server to use Surge.' }); return }

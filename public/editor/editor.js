@@ -1026,10 +1026,14 @@
     const comp = side === 'start' ? w.startComp : w.endComp;
     const pin  = side === 'start' ? w.startPinIdx : w.endPinIdx;
     const i = state.components.indexOf(comp);
-    return i >= 0 ? `${ids[i]}_pin${pin}` : null;
+    if (i < 0) return null;
+    // An ESP32 pin is named for what the sketch calls it: esp32_0_D2 is GPIO 2
+    if (comp.type === 'esp32') return `${ids[i]}_${App.ESP32_PINS[pin]}`;
+    return `${ids[i]}_pin${pin}`;
   }
 
-  // What the AI and the server read: board-model.js export format.
+  // What the AI and the server read: board-model.js export format, plus the
+  // sketch files, so the AI can read and write the code.
   App.exportBoard = function () {
     const ids = App.componentIds();
     return {
@@ -1043,6 +1047,7 @@
         to:    wireEndLabel(w, 'end', ids),
         color: COLOR_NAMES[w.group?.userData?.color] || 'red',
       })).filter(w => w.from && w.to),
+      sketches: App.sketchFiles ? App.sketchFiles() : [],
     };
   };
 

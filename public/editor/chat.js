@@ -226,6 +226,47 @@
     return { done, notes: r.notes, errors: r.errors };
   }
 
+  // Edits that do not move anything on the board: a sketch file, or a part's
+  // value. They are proposed and applied with the board changes.
+  const DIRECT = new Set(['write_sketch', 'set_value', 'place_esp32', 'connect_pin']);
+  function execDirect(list) {
+    let done = 0;
+    for (const a of list) {
+      if (a.tool === 'place_esp32') {
+        const hA = holeObj(a.holeA), hB = holeObj(a.holeB);
+        const holes = hA && hB ? App.esp32Holes(hA, hB) : null;
+        if (!holes || holes.some(h => !App.isHoleFree(h) || App.underBoard(h))) continue;
+        App.placeESP32(hA, hB);
+        const board = App.state.components.filter(c => c.type === 'esp32');
+        const sketch = board[board.length - 1]?.values.sketch;
+        if (a.code && sketch) App.writeSketch(sketch, a.code);
+        done++;
+      } else if (a.tool === 'connect_pin') {
+        const m = /^esp32_(\d+)_(\w+)$/.exec(a.pin);
+        const esp = m ? App.state.components.filter(c => c.type === 'esp32')[+m[1]] : null;
+        const pad = esp?.pinMeshes?.[App.ESP32_PINS.indexOf(m?.[2])];
+        const hole = holeObj(a.to);
+        if (!pad || !hole || !App.isHoleFree(hole) || App.underBoard(hole)) continue;
+        const saved = App.state.wireColor;
+        App.state.wireColor = WIRE_HEX[a.color] ?? saved;
+        App.state.wireStart = { world: pad.userData.world.clone(), holeRef: null, pinMesh: pad };
+        App.finishWire({ world: hole.world.clone(), holeRef: { col: hole.col, row: hole.row }, pinMesh: null });
+        App.state.wireColor = saved;
+        done++;
+      } else if (a.tool === 'write_sketch') {
+        if (App.writeSketch(a.file, a.code)) done++;
+      } else if (a.tool === 'set_value') {
+        const i = App.componentIds().indexOf(a.id);
+        const comp = i >= 0 ? App.state.components[i] : null;
+        const values = {};
+        if (comp?.type === 'resistor' && a.resistance != null) values.resistance = a.resistance;
+        if (comp?.type === 'led' && a.color != null) values.color = a.color;
+        if (Object.keys(values).length) { App.setComponentValues(comp, values); done++; }
+      }
+    }
+    return done;
+  }
+
   // ── Preview: ghosts of what the actions would build ──────────
   const ghostWire = new Map();
   function ghostWireMat(hex) {
@@ -235,8 +276,10 @@
 
   function preview(actions) {
     clearPreview();
-    const r = BM.applyActions(BM.fromExport(App.exportBoard()), actions);
-    if (!r.resolved.length) return false;
+    const direct = actions.filter(a => DIRECT.has(a.tool));
+    const boardActions = actions.filter(a => !DIRECT.has(a.tool));
+    const r = BM.applyActions(BM.fromExport(App.exportBoard()), boardActions);
+    if (!r.resolved.length && !direct.length) return false;
     const ghosts = [], tinted = [];
     const REMOVE = 0xdc2626;
     const tint = g => { if (g && !tinted.includes(g)) { App.setHighlight(g, true, REMOVE); tinted.push(g); } };
@@ -285,11 +328,11 @@
       }
     }
     ghosts.forEach(g => App.scene.add(g));
-    pending = { actions, ghosts, tinted };
+    pending = { actions: boardActions, direct, ghosts, tinted };
     pending.signature = JSON.stringify(App.exportBoard());
     App.previewing = true;
     App.refreshCounts();
-    const n = r.resolved.length;
+    const n = r.resolved.length + direct.length;
     $('surge-pending-count').textContent = `${n} change${n === 1 ? '' : 's'} ready`;
     $('surge-pending-bar').style.display = 'flex';
     return true;
@@ -308,10 +351,11 @@
   function accept() {
     if (!pending) return;
     if (pending.signature !== JSON.stringify(App.exportBoard())) { decline(); addMsg('The board changed. Ask for an updated proposal.', 'system'); return; }
-    const actions = pending.actions;
+    const { actions, direct } = pending;
     clearPreview();
     const r = execActions(actions);
-    addMsg(`Applied ${r.done} change${r.done !== 1 ? 's' : ''}.`, 'system');
+    const done = r.done + execDirect(direct);
+    addMsg(`Applied ${done} change${done !== 1 ? 's' : ''}.`, 'system');
   }
 
   function decline() {
@@ -341,7 +385,8 @@
         addMsg('The board changed while Surge was thinking. Please send the request again.', 'system');
         return;
       }
-      const v = data.actions.length ? (data.verification || localVerify(data.actions)) : null;
+      const boardOnly = data.actions.filter(a => !DIRECT.has(a.tool));
+      const v = boardOnly.length ? (data.verification || localVerify(boardOnly)) : null;
       // The reply ends with the verdict; the card under it says it once.
       const said = v && v.summary ? (data.reply || '').replace(v.summary, '').trim() : data.reply;
       addMsg(said || 'Here is the build.', 'ai');
