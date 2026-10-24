@@ -68,6 +68,48 @@
     return comp.values || PROPS[comp.type] || {};
   }
 
+  // ── ESP32 as a power source ─────────────────────────────────
+  //  The board is powered over USB, so its 3V3 pin is a 3.3 V supply, and any
+  //  pin the sketch sets as OUTPUT is driven high. That is a steady-state
+  //  reading: the sketch is not run, so a blinking LED reads as on.
+  const ESP32_PINS = [   // the same order as App.ESP32_PINS in parts.js
+    'EN', 'VP', 'VN', 'D34', 'D35', 'D32', 'D33', 'D25', 'D26', 'D27', 'D14', 'D12', 'D13', 'GND', 'VIN',
+    'D23', 'D22', 'TX0', 'RX0', 'D21', 'D19', 'D18', 'D5', 'TX2', 'RX2', 'D4', 'D2', 'D15', 'GND', '3V3',
+  ];
+  const ESP32_GNDS = [13, 28];
+
+  // GPIO numbers a sketch configures with pinMode(pin, OUTPUT). The pin may be
+  // a number or a constant declared with `const int` or `#define`.
+  function outputPins(sketch) {
+    const src = String(sketch || '').replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
+    const names = {};
+    for (const m of src.matchAll(/(?:^|\n)\s*(?:const\s+)?(?:u?int\d*_t|int|byte|gpio_num_t)\s+([A-Za-z_]\w*)\s*=\s*(\d+)\s*;/g)) names[m[1]] = +m[2];
+    for (const m of src.matchAll(/#define\s+([A-Za-z_]\w*)\s+(\d+)/g)) names[m[1]] = +m[2];
+    const pins = new Set();
+    for (const m of src.matchAll(/pinMode\s*\(\s*([A-Za-z_]\w*|\d+)\s*,\s*OUTPUT\s*\)/g)) {
+      const n = /^\d+$/.test(m[1]) ? +m[1] : names[m[1]];
+      if (Number.isInteger(n)) pins.add(n);
+    }
+    return [...pins];
+  }
+
+  // Each supply is a virtual 3.3 V battery, so the solver and the report treat
+  // it like any other source.
+  function espSupplies(graph, sketch) {
+    const out = [];
+    const driven = outputPins(sketch);
+    graph.forEach(({ comp, nodes }) => {
+      if (comp.type !== 'esp32') return;
+      const add = (label, pin) => out.push({
+        comp: { type: 'battery', virtual: true, label, values: { voltage: 3.3 }, pins: [0, 1], holeRefs: null },
+        nodes: [nodes[pin], nodes[ESP32_GNDS[1]]],
+      });
+      add('ESP32 3V3', ESP32_PINS.indexOf('3V3'));
+      driven.forEach(n => { const pin = ESP32_PINS.indexOf('D' + n); if (pin >= 0) add('ESP32 D' + n, pin); });
+    });
+    return out;
+  }
+
   const STOCK_R = [100, 150, 220, 330, 470, 680, 1000, 1500, 2200, 3300, 4700, 10000];
 
   function stockResistor(minOhms) {
@@ -170,6 +212,13 @@
       }
     });
 
+    // The ESP32's two GND pins are one net on its board
+    components.forEach((comp, ci) => {
+      if (comp.type === 'esp32' && comp.pins.length > ESP32_GNDS[1]) {
+        uf.union(pinNode[ci][ESP32_GNDS[0]], pinNode[ci][ESP32_GNDS[1]]);
+      }
+    });
+
     // 4. Resolve each pin to its root
     return components.map((comp, ci) => ({
       comp,
@@ -242,7 +291,7 @@
     return { nodes: [...nodeSet], elements };
   }
 
-  function analyze(components, wires) {
+  function analyze(components, wires, options) {
     const blank = { lines: [], ledsOn: [], buzzersOn: [], branches: [] };
 
     if (!components.length) {
@@ -252,7 +301,8 @@
       });
     }
 
-    const graph     = buildGraph(components, wires);
+    const built     = buildGraph(components, wires);
+    const graph     = built.concat(espSupplies(built, options && options.sketch));
     const lines     = [];
     const branches  = [];
     const ledsOn    = [];
@@ -283,7 +333,7 @@
 
     bats.forEach((bat, bi) => {
       const V = propsOf(bat.comp).voltage || 0;
-      lines.push({ text: `Battery ${bi + 1}: ${V}V`, cls: 'sim-info' });
+      lines.push({ text: `${bat.comp.label || 'Battery ' + (bi + 1)}: ${V}V`, cls: 'sim-info' });
     });
 
     const sol = MNA.solve(netlist);
@@ -599,7 +649,7 @@
     // Switch to select mode so user can click components during simulation
     if (!isRerun && App.setMode) App.setMode('select');
 
-    const result = analyze(components, wires);
+    const result = analyze(components, wires, { sketch: App.getSketch ? App.getSketch() : '' });
     showResults(result.lines);
     if (result.status === 'empty') return;
 
@@ -650,5 +700,5 @@
     App.stopSimulation = stopSimulation;
   }
 
-  return { PROPS, UnionFind, bbNodeId, buildGraph, buildNetlist, analyze, install };
+  return { PROPS, UnionFind, bbNodeId, buildGraph, buildNetlist, analyze, outputPins, install };
 });

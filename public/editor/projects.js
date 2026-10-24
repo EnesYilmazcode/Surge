@@ -32,11 +32,7 @@
       };
       examples.append(button);
     }
-    const exampleLabel = document.createElement('h3');
-    exampleLabel.textContent = 'Examples';
-    const savedLabel = document.createElement('h3');
-    savedLabel.textContent = 'Saved in this browser';
-    dialog.append(exampleLabel, examples, savedLabel);
+    dialog.append(examples);
     let projects = [];
     try { projects = JSON.parse(localStorage.getItem('surge_local_projects') || '[]'); } catch {}
     if (!Array.isArray(projects)) projects = [];

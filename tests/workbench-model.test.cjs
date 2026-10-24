@@ -116,5 +116,35 @@ test('an ESP32 on the board holds its 30 holes, so the AI cannot place into them
   if (res) for (const h of res.holes) assert.ok(!holes.includes(BM.formatHole(h)));
   const { components, wires } = BM.toSim(board, Sim.PROPS);
   assert.equal(components[0].pins.length, 30);
-  assert.equal(Sim.analyze(components, wires).status, 'no-battery');
+  // The board is powered over USB, so it is a supply of its own.
+  assert.equal(Sim.analyze(components, wires).status, 'ok');
+});
+
+// An ESP32 on columns 5-19, an LED and resistor on D2 (b16), grounded at GND (b18).
+function esp32Blink() {
+  const holes = [];
+  for (const row of ['i', 'b']) for (let c = 5; c < 20; c++) holes.push(row + c);
+  const start = BM.fromExport({ components: [{ type: 'esp32', holes, values: {} }], wires: [] });
+  const { board } = BM.applyActions(start, [
+    { tool: 'add_wire', from: 'e16', to: 'e25', color: 'yellow' },
+    { tool: 'place_resistor', holeA: 'a25', holeB: 'a29' },
+    { tool: 'place_led', holeA: 'b31', holeB: 'b29' },
+    { tool: 'add_wire', from: 'c31', to: 'e18', color: 'black' },
+  ]);
+  return BM.toSim(board, Sim.PROPS);
+}
+
+test('a pin the sketch sets as OUTPUT drives an LED from an ESP32', () => {
+  const { components, wires } = esp32Blink();
+  const sketch = 'const int LED_PIN = 2;\nvoid setup() { pinMode(LED_PIN, OUTPUT); }';
+  const on = Sim.analyze(components, wires, { sketch });
+  assert.equal(on.ledsOn.length, 1, on.lines.map(l => l.text).join(' | '));
+  assert.ok(on.lines.some(l => l.text.startsWith('ESP32 D2')));
+  // Without the pinMode the pin is not driven, so the LED stays dark.
+  assert.equal(Sim.analyze(components, wires, { sketch: '// nothing' }).ledsOn.length, 0);
+});
+
+test('outputPins reads numbers, constants and #define, and skips comments', () => {
+  const src = '#define BUZZ 4\nconst int LED = 2; // pinMode(9, OUTPUT)\npinMode(LED, OUTPUT);\npinMode(BUZZ,OUTPUT);\npinMode(15, OUTPUT);\npinMode(5, INPUT);';
+  assert.deepEqual(Sim.outputPins(src).sort((a, b) => a - b), [2, 4, 15]);
 });
