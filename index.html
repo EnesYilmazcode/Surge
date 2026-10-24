@@ -1,256 +1,574 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="no-js">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Surge · 3D circuit workbench</title>
-  <link rel="icon" href="/editor/mark.svg" type="image/svg+xml">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Surge: 3D circuit workbench</title>
+  <meta name="description" content="A 3D breadboard in your browser. Drop in real parts, wire them up, press Run, and watch the circuit light up." />
+  <meta name="theme-color" content="#FAF9F6" />
+  <link rel="icon" href="/editor/mark.svg" type="image/svg+xml" />
+  <script>document.documentElement.className = 'js';</script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/editor/editor.css" />
-  <link rel="stylesheet" href="/editor/chat.css" />
-  <link rel="stylesheet" href="/editor/projects.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --paper:      #FAF9F6;
+      --panel:      #F3F1EC;
+      --line:       #E4DFD6;
+      --line-hi:    #D5CFC5;
+      --ink:        #1A1814;
+      --ink-2:      #57514B;
+      --ink-3:      #6E6862;
+      --amber-lo:   #F59E0B;
+      --amber-ink:  #B45309;
+      --amber-deep: #92400E;
+      --stage:      #DCDAD4;
+      --night:      #1A1814;
+      --night-2:    #2A2722;
+      --night-ink:  #E8E4DE;
+      --night-sub:  #A9A39C;
+
+      --wrap:   1720px;
+      --edge:   clamp(1rem, 2.2vw, 2rem);
+      --gutter: clamp(1rem, 4vw, 2rem);
+      --head:   'Space Grotesk', system-ui, sans-serif;
+      --body:   'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      html { scroll-behavior: smooth; }
+    }
+
+    body {
+      font-family: var(--body);
+      font-size: 1rem;
+      line-height: 1.6;
+      color: var(--ink);
+      background: var(--paper);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    a { color: inherit; }
+    svg { flex-shrink: 0; }
+
+    :focus-visible {
+      outline: 2px solid var(--amber-ink);
+      outline-offset: 3px;
+      border-radius: 6px;
+    }
+
+    .wrap {
+      max-width: var(--wrap);
+      margin: 0 auto;
+      padding-inline: var(--gutter);
+    }
+
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; overflow: hidden;
+      clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+    }
+
+    .skip {
+      position: absolute; left: var(--gutter); top: -3rem; z-index: 300;
+      background: var(--ink); color: var(--paper);
+      padding: 0.5rem 0.9rem; border-radius: 8px;
+      font-weight: 600; font-size: 0.875rem; text-decoration: none;
+    }
+    .skip:focus { top: 0.75rem; }
+
+    /* ── Buttons ─────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      min-height: 2.75rem;
+      padding: 0 1.25rem;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      font-family: var(--head);
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      text-decoration: none;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+    }
+    .btn-primary {
+      background: var(--amber-ink);
+      color: #fff;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 1px 2px rgba(146,64,14,0.25);
+    }
+    .btn-primary:hover { background: var(--amber-deep); }
+    .btn-quiet {
+      background: #fff;
+      color: var(--ink);
+      border-color: var(--line-hi);
+    }
+    .btn-quiet:hover { border-color: #BDB5A9; background: var(--panel); }
+    .btn-sm {
+      min-height: 2.25rem;
+      padding: 0 0.9rem;
+      font-size: 0.875rem;
+      border-radius: 8px;
+    }
+
+    /* ── Nav ─────────────────────────────────────────────── */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(250, 249, 246, 0.86);
+      -webkit-backdrop-filter: saturate(1.4) blur(12px);
+      backdrop-filter: saturate(1.4) blur(12px);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav .wrap, .footer .wrap { max-width: none; padding-inline: var(--edge); }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      height: 4rem;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: var(--head);
+      font-size: 1.125rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      text-decoration: none;
+    }
+    .brand img { display: block; border-radius: 7px; }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+    .nav-link {
+      font-size: 0.9375rem;
+      font-weight: 500;
+      color: var(--ink-2);
+      text-decoration: none;
+      padding: 0.45rem 0.75rem;
+      border-radius: 8px;
+      transition: color 0.15s, background-color 0.15s;
+    }
+    .nav-link:hover { color: var(--ink); background: var(--panel); }
+    #nav-cta { margin-left: 0.5rem; min-width: 7.5rem; }
+
+    /* ── Hero ────────────────────────────────────────────── */
+    .hero {
+      position: relative;
+      padding: clamp(3rem, 7vw, 6rem) 0 clamp(3rem, 5vw, 4.5rem);
+      overflow: hidden;
+    }
+    /* Breadboard hole grid, fading out below the fold line. */
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(circle, #CFC8BD 1px, transparent 1.3px);
+      background-size: 22px 22px;
+      background-position: 11px 11px;
+      -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent 75%);
+      mask-image: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent 75%);
+      pointer-events: none;
+    }
+    .hero-grid {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 5fr) minmax(0, 9fr);
+      align-items: center;
+      gap: clamp(2rem, 5vw, 4.5rem);
+    }
+    .hero h1 {
+      font-family: var(--head);
+      font-size: clamp(2.5rem, 2.6vw + 1.9rem, 4.75rem);
+      font-weight: 700;
+      line-height: 1.02;
+      letter-spacing: -0.04em;
+      text-wrap: balance;
+    }
+    .lede {
+      margin-top: 1.5rem;
+      max-width: 32rem;
+      font-size: clamp(1.0625rem, 0.4vw + 0.95rem, 1.1875rem);
+      line-height: 1.6;
+      color: var(--ink-2);
+    }
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 2.25rem;
+    }
+    .hero-actions .btn { min-height: 3rem; padding: 0 1.5rem; font-size: 1.0625rem; }
+    .hero-note {
+      margin-top: 1.25rem;
+      font-size: 0.875rem;
+      color: var(--ink-3);
+    }
+
+    /* ── Live preview ────────────────────────────────────── */
+    .preview {
+      border-radius: 16px;
+      background: #fff;
+      border: 1px solid var(--line-hi);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.8) inset,
+        0 2px 4px rgba(60, 40, 10, 0.04),
+        0 24px 60px -28px rgba(90, 58, 20, 0.35);
+      overflow: hidden;
+    }
+    .preview-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      min-height: 3.25rem;
+      padding: 0.5rem 0.6rem 0.5rem 1rem;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+    /* Status LED: dim while the 3D board loads, lit once it has. */
+    .preview-led {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #C9C1B6;
+      box-shadow: inset 0 -1px 1px rgba(0,0,0,0.18);
+      transition: background-color 0.3s, box-shadow 0.3s;
+    }
+    .preview.is-loaded .preview-led {
+      background: var(--amber-lo);
+      box-shadow: 0 0 0 3px rgba(245,158,11,0.18), 0 0 10px 2px rgba(245,158,11,0.55);
+    }
+    .preview-title {
+      font-family: var(--head);
+      font-size: 0.9375rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .preview-open { margin-left: auto; }
+
+    .preview-stage {
+      position: relative;
+      aspect-ratio: 16 / 10;
+      background: #23262b;
+    }
+    .preview-stage iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+      transition: opacity 0.5s ease;
+    }
+    .js .preview:not(.is-loaded) iframe { opacity: 0; }
+    .preview-status {
+      position: absolute;
+      left: 0.85rem;
+      bottom: 0.85rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.3rem 0.65rem;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.88);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--ink-2);
+      pointer-events: none;
+    }
+    .preview.is-loaded .preview-status { display: none; }
+    .no-js .preview-status { display: none; }
+    /* Touch screens get a picture that turns, not a scroll trap. */
+    @media (hover: none), (pointer: coarse) {
+      .preview-stage iframe { pointer-events: none; }
+    }
+
+    /* ── Sections ────────────────────────────────────────── */
+    .section { padding: clamp(2.5rem, 4vw, 4rem) 0 clamp(3.5rem, 6vw, 6rem); }
+    .section-head { max-width: 40rem; margin-bottom: clamp(2rem, 4vw, 3rem); }
+    .section-head h2 {
+      font-family: var(--head);
+      font-size: clamp(1.875rem, 1.6vw + 1.3rem, 2.5rem);
+      font-weight: 700;
+      line-height: 1.1;
+      letter-spacing: -0.035em;
+      text-wrap: balance;
+    }
+    .section-head p {
+      margin-top: 0.85rem;
+      font-size: 1.0625rem;
+      color: var(--ink-2);
+    }
+
+    /* Four things you do on the bench, each drawn in a small picture. */
+    .features {
+      list-style: none;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1.25rem;
+    }
+    .features li {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .f-art {
+      display: block;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 4 / 3;
+    }
+    .features .f-text { padding: 1.1rem 1.35rem 1.35rem; }
+    .features h3 {
+      font-family: var(--head);
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .features p { margin-top: 0.2rem; color: var(--ink-2); }
+
+    /* ── Closing band ────────────────────────────────────── */
+    .closing {
+      background: var(--night);
+      color: var(--night-ink);
+      padding: clamp(3rem, 6vw, 5rem) 0;
+    }
+    .closing-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+    }
+    .closing h2 {
+      font-family: var(--head);
+      font-size: clamp(1.75rem, 1.4vw + 1.2rem, 2.5rem);
+      font-weight: 700;
+      letter-spacing: -0.035em;
+      line-height: 1.1;
+    }
+    .closing .btn-primary { min-height: 3rem; padding: 0 1.5rem; font-size: 1.0625rem; }
+
+    /* ── Footer ──────────────────────────────────────────── */
+    .footer {
+      background: var(--night-2);
+      color: var(--night-ink);
+    }
+    .footer :focus-visible { outline-color: var(--amber-lo); }
+    .footer-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.5rem;
+      padding: 1.75rem 0 2rem;
+      font-size: 0.875rem;
+      color: var(--night-sub);
+    }
+    .footer-meta .brand { font-size: 1rem; color: var(--night-ink); }
+    .footer-meta a { color: var(--night-ink); text-underline-offset: 3px; }
+    .footer-meta a:hover { color: var(--amber-lo); }
+
+    /* ── Motion: one entrance, on load ───────────────────── */
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(14px); }
+      to   { opacity: 1; transform: none; }
+    }
+    @keyframes breathe {
+      50% { opacity: 0.35; }
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .hero-copy { animation: rise 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both 0.05s; }
+      .preview   { animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both 0.18s; }
+      .js .preview:not(.is-loaded) .preview-led { animation: breathe 1.4s ease-in-out infinite; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition-duration: 0.01ms !important; }
+    }
+
+    /* ── Layout breakpoints ──────────────────────────────── */
+    @media (max-width: 1023px) {
+      .hero-grid { grid-template-columns: minmax(0, 1fr); }
+      .hero-copy { max-width: 40rem; }
+    }
+    @media (max-width: 1100px) {
+      .features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 560px) {
+      .features { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .hero-actions .btn { flex: 1 1 auto; }
+    }
+    @media (max-width: 380px) {
+      .nav-link { padding-inline: 0.5rem; }
+      #nav-cta { min-width: 0; }
+    }
+  </style>
 </head>
 <body>
+  <!-- Shared dot pattern for the illustrations below. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <pattern id="holes" width="22" height="22" patternUnits="userSpaceOnUse">
+        <circle cx="11" cy="11" r="2.6" fill="#B9B1A5" />
+      </pattern>
+    </defs>
+  </svg>
 
-<div id="app">
+  <a class="skip" href="#main">Skip to content</a>
 
-  <!-- TOP BAR -->
-  <header id="topbar">
-    <div class="topbar-left-group">
-      <a class="topbar-brand" href="/" title="Surge workbench">
-        <span class="brand-mark">
-          <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M16.2 5.6H9.9L7.4 8.1v1.6l2.3 2.3h4.6l2.3 2.3v1.6l-2.5 2.5H7.8" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16.6" cy="5.6" r="2" fill="#fff"/><circle cx="16.6" cy="5.6" r=".8" fill="#e98b0b"/><circle cx="7.4" cy="18.4" r="2" fill="#fff"/><circle cx="7.4" cy="18.4" r=".8" fill="#e98b0b"/></svg>
-        </span>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a href="/" class="brand">
+        <img src="/editor/mark.svg" width="28" height="28" alt="" />
         Surge
       </a>
-      <span class="topbar-name-sep">/</span>
-      <span id="circuit-name-field"
-            contenteditable="true"
-            spellcheck="false"
-            title="Click to rename"
-            onblur="App.state.circuitName = this.textContent.trim() || 'Untitled'; this.textContent = App.state.circuitName; if(App.scheduleAutoSave) App.scheduleAutoSave();"
-            onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">Untitled</span>
-    </div>
-
-    <div class="topbar-center">
-      <div class="seg" role="group" aria-label="Tool">
-        <button class="mode-btn" data-mode="select" title="Select (S)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M4 3l7 17 2.5-7.5L21 10z"/></svg>
-          Select
-        </button>
-        <button class="mode-btn" data-mode="wire" title="Wire (W)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="5" cy="17" r="2"/><circle cx="19" cy="17" r="2"/><path d="M5 15c0-8 14-8 14 0"/></svg>
-          Wire
-        </button>
-      </div>
-      <button class="btn-simulate" id="sim-run-btn" onclick="App.runSimulation()" title="Run the circuit">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
-        Run
-      </button>
-      <button class="btn-stop" id="sim-stop-btn" onclick="App.stopSimulation()" style="display:none">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
-        Stop
-      </button>
-    </div>
-
-    <div class="topbar-actions">
-      <button class="icon-btn" onclick="App.undo()" title="Undo (Ctrl+Z)" aria-label="Undo">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
-      </button>
-      <button class="icon-btn" onclick="App.redo()" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
-      </button>
-      <span class="topbar-divider"></span>
-      <button class="btn-secondary" onclick="App.openProjects()" title="Open a .surge file">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-8l-2-3H4a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1z"/></svg>
-        Open
-      </button>
-      <button class="btn-secondary" onclick="App.saveCircuit()" title="Download as a .surge file">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
-        Download
-      </button>
+      <nav class="nav-links" aria-label="Main">
+        <a href="https://github.com/EnesYilmazcode/Surge" class="nav-link" target="_blank" rel="noopener">GitHub</a>
+        <a href="app.html" class="btn btn-sm btn-primary" id="nav-cta">Open the editor</a>
+      </nav>
     </div>
   </header>
 
-  <!-- BODY -->
-  <div id="body">
-
-    <!-- PARTS LIBRARY -->
-    <aside id="sidebar">
-      <div class="sidebar-section-label">Parts</div>
-
-      <button class="comp-item" data-type="resistor">
-        <span class="comp-item-icon" data-thumb="resistor"></span>
-        <span class="comp-item-text">
-          <span class="comp-item-name">Resistor</span>
-        </span>
-      </button>
-
-      <button class="comp-item" data-type="led">
-        <span class="comp-item-icon" data-thumb="led"></span>
-        <span class="comp-item-text">
-          <span class="comp-item-name">LED</span>
-        </span>
-      </button>
-
-      <button class="comp-item" data-type="battery">
-        <span class="comp-item-icon" data-thumb="battery"></span>
-        <span class="comp-item-text">
-          <span class="comp-item-name">Battery</span>
-        </span>
-      </button>
-
-      <button class="comp-item" data-type="buzzer">
-        <span class="comp-item-icon" data-thumb="buzzer"></span>
-        <span class="comp-item-text">
-          <span class="comp-item-name">Buzzer</span>
-        </span>
-      </button>
-
-      <button class="comp-item" data-type="button">
-        <span class="comp-item-icon" data-thumb="button"></span>
-        <span class="comp-item-text">
-          <span class="comp-item-name">Push button</span>
-        </span>
-      </button>
-
-      <button class="comp-item" data-type="wire" id="wire-tool-btn">
-        <span class="comp-item-icon" data-thumb="wire"></span>
-        <span class="comp-item-text">
-          <span class="comp-item-name">Jumper wire</span>
-        </span>
-      </button>
-
-      <div id="wire-color-row" style="display:none;">
-        <div class="color-swatches" role="radiogroup" aria-label="Wire color">
-          <button class="swatch active" data-color="0xef4444" style="background:#ef4444" title="Red" aria-label="Red"></button>
-          <button class="swatch" data-color="0x111111" style="background:#1f1f1f" title="Black" aria-label="Black"></button>
-          <button class="swatch" data-color="0xfbbf24" style="background:#fbbf24" title="Yellow" aria-label="Yellow"></button>
-          <button class="swatch" data-color="0x22c55e" style="background:#22c55e" title="Green" aria-label="Green"></button>
-          <button class="swatch" data-color="0x3b82f6" style="background:#3b82f6" title="Blue" aria-label="Blue"></button>
-          <button class="swatch" data-color="0xffffff" style="background:#f4f4f4" title="White" aria-label="White"></button>
-        </div>
-      </div>
-    </aside>
-
-    <!-- 3D CANVAS -->
-    <div id="canvas-wrap">
-      <canvas id="canvas"></canvas>
-
-      <div id="hint-box" class="hint-hidden">
-        <span id="hint-text"></span>
-      </div>
-
-      <div id="hole-label"></div>
-
-      <div id="rotate-badge"><kbd>R</kbd> rotate</div>
-
-      <div class="view-tools">
-        <button id="clear-all-btn" title="Clear the board" style="display:none" onclick="App.clearAll()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M9 6V4h6v2"/></svg>
-          Clear
-        </button>
-        <button id="reset-cam-btn" title="Reset the view" onclick="App.resetView && App.resetView()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-          Reset view
-        </button>
-      </div>
-    </div>
-
-    <!-- Surge PANEL -->
-    <div id="surge-panel">
-      <div class="surge-header">
-        <button id="surge-clear" class="icon-btn" title="New chat" aria-label="New chat">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-        </button>
-      </div>
-
-      <div id="surge-messages">
-        <div id="surge-welcome">
-          <div class="surge-welcome-title">What should we build?</div>
-          <div id="surge-suggestions">
-            <button class="surge-suggest-btn" onclick="surgeQuick('Build a complete working LED circuit from scratch.')">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
-              <span>Build an LED circuit</span>
-            </button>
-            <button class="surge-suggest-btn" onclick="surgeQuick('Build a circuit where a push button turns an LED on.')">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><rect x="4" y="4" width="16" height="16" rx="3"/></svg>
-              <span>Add a button that switches it</span>
-            </button>
-            <button class="surge-suggest-btn" onclick="surgeQuick('Look at my board and tell me whether it will work, and why.')">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-              <span>Check my circuit</span>
-            </button>
+  <main id="main">
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <h1>Snap a circuit together in 3D</h1>
+          <p class="lede">Drop real parts onto a breadboard, wire them up, and press Run. Every piece clicks into its sockets, and the solver lights up what should glow.</p>
+          <div class="hero-actions">
+            <a href="app.html" class="btn btn-primary" id="hero-cta">Open the editor</a>
+            <a href="app.html?demo" class="btn btn-quiet">Try the demo</a>
           </div>
+          <p class="hero-note">Free. Runs in your browser. No account needed.</p>
         </div>
-      </div>
 
-      <div id="surge-pending-bar" style="display:none">
-        <span id="surge-pending-count">Changes ready</span>
-        <button class="pending-decline" onclick="surgeDeclineChanges()">Discard</button>
-        <button class="pending-accept" onclick="surgeAcceptChanges()">Apply</button>
+        <figure class="preview" id="preview">
+          <div class="preview-bar">
+            <span class="preview-led" aria-hidden="true"></span>
+            <span class="preview-title">Live preview</span>
+            <a href="app.html" class="btn btn-sm btn-primary preview-open">Open in editor</a>
+          </div>
+          <div class="preview-stage">
+            <iframe src="app.html?hero=1" loading="lazy" tabindex="-1"
+              title="A 3D breadboard assembling the demo circuit one part at a time, then lighting its LED"></iframe>
+            <p class="preview-status" aria-hidden="true">Loading the 3D board</p>
+          </div>
+          <figcaption class="sr-only">The demo circuit assembling itself on a 3D breadboard, then lighting its LED. Open the editor to build your own.</figcaption>
+        </figure>
       </div>
+    </section>
 
-      <div id="surge-input-row">
-        <div class="surge-input-box">
-          <textarea id="surge-input" rows="1" placeholder="Ask Surge…" aria-label="Message Surge"></textarea>
-          <button id="surge-send" title="Send" aria-label="Send">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-          </button>
+    <section class="section" aria-labelledby="bench-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="bench-title">Everything happens on one 3D board</h2>
+          <p>Each part is placed into real sockets, so you can see exactly what is connected to what.</p>
         </div>
+        <ul class="features">
+          <li>
+            <svg class="f-art" viewBox="0 0 400 300" aria-hidden="true">
+              <rect width="400" height="300" fill="#E9E6DF" />
+              <rect width="400" height="300" fill="url(#holes)" />
+              <rect x="130" y="172" width="140" height="62" rx="10" fill="#1A1814" />
+              <rect x="130" y="58" width="140" height="62" rx="10" fill="#D97706" />
+              <path d="M200 126 V156" stroke="#92400E" stroke-width="3" stroke-dasharray="5 7" stroke-linecap="round" />
+              <path d="M190 148 L200 162 L210 148" fill="none" stroke="#92400E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+              <circle cx="200" cy="240" r="20" fill="none" stroke="#D97706" stroke-width="3" opacity="0.85" />
+            </svg>
+            <div class="f-text"><h3>Snap</h3><p>Each part drops onto the sockets under it and clicks home.</p></div>
+          </li>
+          <li>
+            <svg class="f-art" viewBox="0 0 400 300" aria-hidden="true">
+              <rect width="400" height="300" fill="#E9E6DF" />
+              <rect width="400" height="300" fill="url(#holes)" />
+              <path d="M110 170 C 130 60, 270 60, 290 170" fill="none" stroke="#D97706" stroke-width="9" stroke-linecap="round" />
+              <circle cx="110" cy="170" r="10" fill="#1A1814" />
+              <circle cx="290" cy="170" r="10" fill="#1A1814" />
+            </svg>
+            <div class="f-text"><h3>Wire</h3><p>Click two sockets or a battery terminal. The jumper arcs over the board.</p></div>
+          </li>
+          <li>
+            <svg class="f-art" viewBox="0 0 400 300" aria-hidden="true">
+              <rect width="400" height="300" fill="#E9E6DF" />
+              <rect width="400" height="300" fill="url(#holes)" />
+              <path d="M90 96 H310 V204 H90 Z" fill="none" stroke="#57514B" stroke-width="6" stroke-linejoin="round" />
+              <circle cx="200" cy="96" r="34" fill="#F87171" opacity="0.25" />
+              <circle cx="200" cy="96" r="14" fill="#DC2626" />
+              <rect x="72" y="128" width="36" height="46" rx="6" fill="#1A1814" />
+              <rect x="288" y="128" width="34" height="46" rx="8" fill="#D6B98A" stroke="#7C5A2B" stroke-width="2" />
+            </svg>
+            <div class="f-text"><h3>Run</h3><p>The solver works out the voltages and currents, then lights the LEDs.</p></div>
+          </li>
+          <li>
+            <svg class="f-art" viewBox="0 0 400 300" aria-hidden="true">
+              <rect width="400" height="300" fill="#E9E6DF" />
+              <rect width="400" height="300" fill="url(#holes)" />
+              <rect x="120" y="70" width="160" height="110" rx="14" fill="#FFFFFF" stroke="#D5CFC5" stroke-width="2" />
+              <rect x="110" y="90" width="160" height="110" rx="14" fill="#FFFFFF" stroke="#D5CFC5" stroke-width="2" />
+              <circle cx="290" cy="208" r="26" fill="#1A1814" />
+              <path d="M290 192 V216 M280 207 L290 217 L300 207" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <div class="f-text"><h3>Keep</h3><p>Circuits autosave in your browser. Download a .surge file to share one.</p></div>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="closing" aria-label="Start building">
+      <div class="wrap closing-inner">
+        <h2>Build it, then press Run.</h2>
+        <a href="app.html" class="btn btn-primary">Open the editor</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer-meta">
+        <a href="/" class="brand" aria-label="Surge home">
+          <img src="/editor/mark.svg" width="24" height="24" alt="" />
+          Surge
+        </a>
+        <p>By <a href="https://github.com/EnesYilmazcode" target="_blank" rel="noopener">Enes Yilmaz</a> and <a href="https://github.com/ColinL-code" target="_blank" rel="noopener">Colin Lee</a></p>
+        <a href="https://github.com/EnesYilmazcode/Surge" target="_blank" rel="noopener">GitHub</a>
       </div>
     </div>
+  </footer>
 
-  </div>
+  <script>
+    // Stop the wheel reaching the 3D controls so the page scrolls over the
+    // preview instead of zooming it. Drag to orbit still works.
+    const preview = document.getElementById('preview');
+    const frame = preview.querySelector('iframe');
 
-  <!-- Clear Board Modal -->
-  <div id="clear-modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="clear-modal-title">
-    <div class="lpm-card">
-      <div class="lpm-name" id="clear-modal-title">Clear the board?</div>
-      <div class="lpm-btns">
-        <button class="btn-secondary" id="clear-modal-cancel">Cancel</button>
-        <button class="btn-danger" id="clear-modal-confirm">Delete all</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Load Preview Modal -->
-  <div id="load-preview-modal" style="display:none">
-    <div class="lpm-card">
-      <div class="lpm-thumb">
-        <img id="lpm-img" src="" alt="Circuit preview" style="display:none">
-        <div id="lpm-placeholder">No preview available</div>
-      </div>
-      <div class="lpm-name" id="lpm-name"></div>
-      <div class="lpm-meta" id="lpm-meta"></div>
-      <div class="lpm-btns">
-        <button class="btn-simulate" id="lpm-confirm">Load circuit</button>
-        <button class="btn-secondary" onclick="document.getElementById('load-preview-modal').style.display='none'">Cancel</button>
-      </div>
-    </div>
-  </div>
-
-</div>
-
-<!-- Three.js -->
-
-
-
-
-<!-- App modules (load in dependency order) -->
-
-
-
-
-
-
-
-
-
-
-
-
-<script type="module" src="/src/workbench.ts"></script>
+    function previewReady() {
+      // The iframe's load fires before the first 3D frame is drawn.
+      setTimeout(() => preview.classList.add('is-loaded'), 250);
+      try {
+        frame.contentWindow.addEventListener('wheel', ev => ev.stopImmediatePropagation(), { capture: true, passive: true });
+      } catch (e) { /* not same-origin: leave it */ }
+    }
+    frame.addEventListener('load', previewReady);
+    // The frame may have finished before this script ran.
+    try {
+      const d = frame.contentDocument;
+      if (d && d.readyState === 'complete' && d.location.href !== 'about:blank') previewReady();
+    } catch (e) {}
+  </script>
 </body>
 </html>

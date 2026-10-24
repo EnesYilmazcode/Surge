@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173/`.
+Open `http://127.0.0.1:5173/` for the homepage, or `http://127.0.0.1:5173/app.html` for the editor.
 
 For AI chat, copy `.env.example` to `.env.local`, set `GEMINI_API_KEY`, and restart the server. The default model is `gemini-2.5-flash`; `GEMINI_MODEL` can override it. Credentials stay on the local server and are excluded from Git and browser bundles.
 

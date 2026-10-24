@@ -108,6 +108,50 @@
     requestAnimationFrame(step);
   };
 
+  // ── Snap-in ──────────────────────────────────────────────────
+  // A new part drops onto its sockets, slowing into place, and clicks on
+  // contact. Restoring a saved board runs with history muted, so opening a
+  // file stays instant and silent.
+  let _clickCtx = null;
+  function playSnapClick() {
+    try {
+      _clickCtx = _clickCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = _clickCtx;
+      if (ctx.state === 'suspended') ctx.resume();
+      const n = Math.floor(ctx.sampleRate * 0.025);
+      const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+      const samples = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) samples[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 8);
+      const src = ctx.createBufferSource();
+      const band = ctx.createBiquadFilter();
+      const gain = ctx.createGain();
+      src.buffer = buf;
+      band.type = 'bandpass'; band.frequency.value = 2200; band.Q.value = 1.2;
+      gain.gain.value = 0.5;
+      src.connect(band).connect(gain).connect(ctx.destination);
+      src.start();
+    } catch {}
+  }
+
+  // Drop `object` from `drop` units above its rest height onto the board.
+  App.snapIn = function (object, drop) {
+    if (_historyMuted) return;
+    const rest  = object.position.y;
+    const start = performance.now() / 1000;
+    const dur   = 0.38;
+    const tick = now => {
+      const k = Math.min(1, (now - start) / dur);
+      const e = 1 - Math.pow(1 - k, 3);
+      object.position.y = rest + drop * (1 - e);
+      if (k < 1) return;
+      object.position.y = rest;
+      App.removeTicker(tick);
+      if (!App.isHero) playSnapClick();
+    };
+    object.position.y = rest + drop;
+    App.addTicker(tick);
+  };
+
   // ── Sidebar ──────────────────────────────────────────────────
 
   function initSidebar() {
@@ -239,6 +283,7 @@
     const vals = App.componentValues('resistor', values);
     const { group, pins } = App.buildResistor(holeA, holeB, vals.resistance);
     App.scene.add(group);
+    App.snapIn(group, 1.1);
     const record = {
       type: 'resistor', group, pins, pinMeshes: [], values: vals,
       holeRefs: [{ col: holeA.col, row: holeA.row },
@@ -254,6 +299,7 @@
     const vals = App.componentValues('led', values);
     const { group, pins } = App.buildLED(holeA, holeB, vals.color);
     App.scene.add(group);
+    App.snapIn(group, 1.1);
     const record = {
       type: 'led', group, pins, pinMeshes: [], values: vals,
       // pin 0 = cathode (−), pin 1 = anode (+)
@@ -269,6 +315,7 @@
     pushHistory();
     const { group, pins } = App.buildBuzzer(holeA, holeB);
     App.scene.add(group);
+    App.snapIn(group, 1.1);
     const record = {
       type: 'buzzer', group, pins, pinMeshes: [],
       values: App.componentValues('buzzer', values),
@@ -284,6 +331,7 @@
     pushHistory();
     const { group, pins, capMesh } = App.buildButton(holeA, holeB);
     App.scene.add(group);
+    App.snapIn(group, 1.1);
     const record = {
       type: 'button', group, pins, pinMeshes: [],
       values: App.componentValues('button', values),
@@ -367,6 +415,7 @@
     const placedX = wx >= 0 ? Math.max(wx, margin) : Math.min(wx, -margin);
     const { group, pins } = App.buildBattery(placedX, wz);
     App.scene.add(group);
+    App.snapIn(group, 1.1);
     const record = {
       type: 'battery', group, pins, pinMeshes: [],
       values: App.componentValues('battery', values),
@@ -420,6 +469,7 @@
     const wireGroup = App.buildWire(startWorld, endWorld, state.wireColor);
     wireGroup.userData.color = state.wireColor;
     App.scene.add(wireGroup);
+    App.snapIn(wireGroup, 0.5);
 
     const sp = state.wireStart.pinMesh;
     if (sp) sp.userData.isWireStart = false;
@@ -985,6 +1035,7 @@
   App.scheduleAutoSave = scheduleAutoSave;
 
   function _doAutoSave() {
+    if (App.isHero) return;                                        // the homepage preview saves nothing
     if (!state.components.length && !state.wires.length) return; // nothing to save
 
     if (!state.circuitId) {
@@ -1070,6 +1121,11 @@
     state.circuitName = name;
     const nf = document.getElementById('circuit-name-field');
     if (nf) nf.textContent = name;
+  }
+
+  // Homepage links: app.html?demo opens the demo circuit straight away.
+  if (/[?&]demo\b/.test(window.location?.search ?? '') && !_pending) {
+    document.getElementById('load-demo-btn')?.click();
   }
 
 })(window.App = window.App || {});

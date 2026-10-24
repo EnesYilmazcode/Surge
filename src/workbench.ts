@@ -1,7 +1,11 @@
 import { workbenchThree } from './workbench-three'
 
+// The homepage preview is this same editor opened with ?hero: the board
+// alone, with the demo circuit playing itself. It never saves anything.
+const hero = new URLSearchParams(window.location.search).has('hero')
 ;(window as unknown as Record<string, unknown>).THREE = workbenchThree
 ;(window as unknown as Record<string, unknown>).App = {
+  isHero: hero,
   onReady(callback: () => void) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', callback, { once: true })
     else callback()
@@ -27,7 +31,9 @@ async function loadScript(name: string) {
 }
 
 async function boot() {
-  for (const name of ['board-model', 'scene', 'board', 'parts', 'input', 'solver', 'simulation', 'project-format', 'editor', 'inspector', 'chat', 'thumbs', 'projects']) {
+  const modules = ['board-model', 'scene', 'board', 'parts', 'input', 'solver', 'simulation', 'project-format', 'editor', 'inspector', 'chat', 'thumbs', 'projects']
+  if (hero) modules.push('hero')
+  for (const name of modules) {
     await loadScript(name)
   }
 }

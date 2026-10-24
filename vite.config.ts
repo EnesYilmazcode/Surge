@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
     plugins: [classicThree(), react(), surgeApi({ apiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY, model: env.GEMINI_MODEL })],
     optimizeDeps: { exclude: ['three-classic/examples/jsm/controls/OrbitControls.js', 'three-classic/examples/jsm/environments/RoomEnvironment.js'] },
     ssr: { noExternal: ['three-classic', 'three'] },
-    build: { rollupOptions: { input: { index: 'index.html', studio: 'studio.html' } } },
+    build: { rollupOptions: { input: { index: 'index.html', app: 'app.html', studio: 'studio.html' } } },
     server: { host: '127.0.0.1', port: 5173, strictPort: true },
     preview: { host: '127.0.0.1', port: 4173, strictPort: true },
   }
