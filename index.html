@@ -238,6 +238,12 @@
       .stage iframe { transition-duration: 0.01ms; }
     }
 
+    /* Touch screens scroll natively and stop at each section. */
+    @media (pointer: coarse) {
+      html { scroll-snap-type: y mandatory; }
+      .beat { scroll-snap-align: start; }
+    }
+
     /* ── Small screens: text along the bottom ────────────── */
     @media (max-width: 720px) {
       .beat { align-items: flex-end; padding-bottom: 5.5rem; }
