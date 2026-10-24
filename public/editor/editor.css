@@ -516,42 +516,62 @@ canvas {
 .sim-line.sim-warn::before { background: #fbbf24; }
 .sim-line.sim-err::before  { background: #f87171; }
 
-/* ── INSPECTOR (selected part) ──────────────── */
+/* ── SELECTION DOCK (the selected part) ─────── */
 #inspector {
   position: absolute;
-  top: 14px;
-  left: 14px;
-  width: 280px;
-  padding: 12px 14px;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  width: min(600px, calc(100% - 180px));
+  display: none;
+  grid-template-columns: 52px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 10px 10px 12px;
   color: var(--glass-ink);
   background: var(--glass);
   border: 1px solid var(--glass-line);
-  border-radius: 12px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  border-radius: 14px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   box-shadow: var(--shadow-2);
-  display: none;
   z-index: 5;
+  animation: insp-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.insp-head { display: flex; flex-direction: column; gap: 2px; }
-.insp-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; }
-.insp-id { font: 500 11px ui-monospace, 'SF Mono', Menlo, Consolas, monospace; color: var(--glass-ink-2); }
-.insp-file {
-  align-self: flex-start;
-  display: inline-flex; align-items: center; gap: 5px;
-  margin: 4px 0 2px;
-  padding: 2px 8px 2px 6px;
-  font: 500 11.5px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  color: #f3b35b;
-  background: rgba(217, 119, 6, 0.14);
-  border: 1px solid rgba(217, 119, 6, 0.35);
-  border-radius: 6px;
-  cursor: pointer;
+@keyframes insp-in {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
 }
-.insp-file:hover { background: rgba(217, 119, 6, 0.26); color: #ffc780; }
-.insp-about { font-size: 12px; line-height: 1.5; color: var(--glass-ink-2); margin: 8px 0 4px; }
-.insp-label { font-size: 10.5px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; color: var(--glass-ink-2); margin: 10px 0 6px; }
-.insp-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.insp-thumb {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.insp-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.insp-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.insp-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; white-space: nowrap; }
+.insp-id {
+  font: 500 11px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--glass-ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.insp-about {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--glass-ink-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.insp-controls { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-items: center; max-width: 230px; }
 .insp-chip {
   height: 26px;
   padding: 0 9px;
@@ -566,26 +586,62 @@ canvas {
 .insp-chip:hover { background: rgba(255,255,255,0.12); }
 .insp-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .insp-swatch {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   border: 2px solid rgba(255,255,255,0.18);
   background: var(--sw);
   cursor: pointer;
 }
 .insp-swatch.on { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
-.insp-note { font-size: 11px; color: var(--glass-ink-2); margin-left: 4px; }
-.insp-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
-.insp-delete {
+.insp-note { font-size: 11px; color: var(--glass-ink-2); margin-left: 2px; }
+.insp-sketch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-line);
+  background: rgba(255,255,255,0.07);
+  color: var(--glass-ink);
+  font: 500 12px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  cursor: pointer;
+}
+.insp-sketch svg { color: var(--accent); flex: none; }
+.insp-sketch:hover { background: rgba(255,255,255,0.14); border-color: rgba(217,119,6,0.5); }
+.insp-end { display: flex; align-items: center; gap: 6px; }
+.insp-delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
   padding: 0 11px;
-  border-radius: 7px;
+  border-radius: 8px;
   border: 1px solid rgba(248,113,113,0.35);
   background: rgba(127,29,29,0.25);
   color: #fecaca;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
 .insp-delete:hover { background: rgba(127,29,29,0.5); }
+.insp-close {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--glass-ink-2);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.insp-close:hover { background: rgba(255,255,255,0.1); color: var(--glass-ink); }
+
+@media (max-width: 900px) {
+  #inspector { grid-template-columns: 44px minmax(0, 1fr) auto; width: calc(100% - 24px); }
+  .insp-thumb { width: 44px; height: 44px; }
+  .insp-controls { grid-column: 1 / -1; justify-content: flex-start; max-width: none; }
+}
 
