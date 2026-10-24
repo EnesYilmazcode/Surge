@@ -173,10 +173,10 @@
     <!-- CODE VIEW -->
     <section id="code-view" hidden aria-label="ESP32 code editor">
       <div class="code-tabs">
-        <span class="code-tab">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>
-          sketch.ino
-        </span>
+        <div class="code-tab-list" role="tablist" aria-label="Sketch files"></div>
+        <button class="code-tab-add" title="New file" aria-label="New file">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+        </button>
       </div>
       <div class="code-main">
         <div class="code-gutter" aria-hidden="true"><div class="code-gutter-inner"></div></div>
@@ -186,7 +186,7 @@
         </div>
       </div>
       <div class="code-status">
-        <span>ESP32 · Arduino C++</span>
+        <span>ESP32 · Arduino C++ · <span id="code-used-by"></span></span>
         <span id="code-pos">Ln 1, Col 1</span>
       </div>
     </section>

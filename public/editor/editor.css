@@ -552,6 +552,19 @@ canvas {
 .insp-head { display: flex; flex-direction: column; gap: 2px; }
 .insp-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; }
 .insp-id { font: 500 11px ui-monospace, 'SF Mono', Menlo, Consolas, monospace; color: var(--glass-ink-2); }
+.insp-file {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 5px;
+  margin: 4px 0 2px;
+  padding: 2px 8px 2px 6px;
+  font: 500 11.5px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color: #f3b35b;
+  background: rgba(217, 119, 6, 0.14);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.insp-file:hover { background: rgba(217, 119, 6, 0.26); color: #ffc780; }
 .insp-about { font-size: 12px; line-height: 1.5; color: var(--glass-ink-2); margin: 8px 0 4px; }
 .insp-label { font-size: 10.5px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; color: var(--glass-ink-2); margin: 10px 0 6px; }
 .insp-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

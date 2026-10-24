@@ -57,3 +57,14 @@ test('an ESP32 needs all 30 of its sockets', () => {
   short.components.push({ type: 'esp32', holeRefs: holeRefs.slice(0, 2) })
   assert.throws(() => validate(short), /30 socket/)
 })
+
+test('sketch files and an ESP32\'s file name survive validation, and a bad name is refused', () => {
+  const holes = [...Array(15).keys()].flatMap(i => [{ row: 'i', col: 4 + i }, { row: 'b', col: 4 + i }]);
+  const good = validate({ components: [{ type: 'esp32', holeRefs: holes, values: { sketch: 'a b.ino' } }], wires: [],
+    files: [{ name: 'a b.ino', code: 'void setup() {}' }, { name: 'two.ino', code: '' }] });
+  assert.equal(JSON.stringify(good.files.map(f => f.name)), '["a b.ino","two.ino"]');
+  assert.equal(good.components[0].values.sketch, 'a b.ino');
+  assert.equal(JSON.stringify(validate({ components: [], wires: [], code: 'int x;' }).files), '[{"name":"sketch.ino","code":"int x;"}]');
+  assert.throws(() => validate({ components: [], wires: [], files: [{ name: '../x', code: '' }] }), /Invalid sketch file/);
+  assert.throws(() => validate({ components: [], wires: [], files: [{ name: 'a.ino', code: '' }, { name: 'a.ino', code: '' }] }), /Invalid sketch file/);
+});

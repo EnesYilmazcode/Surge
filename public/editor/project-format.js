@@ -1,6 +1,7 @@
 (function(root) {
   'use strict';
   const types = new Set(['resistor', 'led', 'battery', 'buzzer', 'button', 'esp32']);
+  const fileName = /^[\w\-. ]{1,40}$/;
   const rows = new Set(['a','b','c','d','e','f','g','h','i','j','tp','tn','bn','bp']);
   function hole(value) {
     if (!value || !rows.has(value.row) || !Number.isInteger(value.col) || value.col < 0 || value.col >= 50) throw new Error('Invalid breadboard socket.');
@@ -33,6 +34,10 @@
           if (!Number.isFinite(c.values[key]) || c.values[key] <= 0 || c.values[key] > 1e9) throw new Error('Invalid electrical value.');
           result.values[key] = c.values[key];
         }
+        if (c.values.sketch !== undefined) {
+          if (typeof c.values.sketch !== 'string' || !fileName.test(c.values.sketch)) throw new Error('Invalid sketch file name.');
+          result.values.sketch = c.values.sketch;
+        }
         if (c.values.color !== undefined) {
           if (!['red','yellow','green','blue','white'].includes(c.values.color)) throw new Error('Invalid LED color.');
           result.values.color = c.values.color;
@@ -63,7 +68,18 @@
       return result;
     });
     const result = { version: 1, name: data.name || 'Untitled', components, wires };
-    if (typeof data.code === 'string' && data.code.length <= 100000) result.code = data.code;
+    // Sketch files. Older circuit files carried a single `code` string.
+    const files = data.files !== undefined ? data.files
+      : typeof data.code === 'string' ? [{ name: 'sketch.ino', code: data.code }] : undefined;
+    if (files !== undefined) {
+      if (!Array.isArray(files) || files.length > 32) throw new Error('A circuit can have at most 32 sketch files.');
+      const seen = new Set();
+      result.files = files.map(f => {
+        if (!f || typeof f.name !== 'string' || !fileName.test(f.name) || seen.has(f.name) || typeof f.code !== 'string' || f.code.length > 100000) throw new Error('Invalid sketch file.');
+        seen.add(f.name);
+        return { name: f.name, code: f.code };
+      });
+    }
     if (typeof data.id === 'string' && data.id.length <= 120) result.id = data.id;
     if (typeof data.thumbnail === 'string' && /^data:image\/(jpeg|png);base64,/.test(data.thumbnail) && data.thumbnail.length <= 2e6) result.thumbnail = data.thumbnail;
     return result;

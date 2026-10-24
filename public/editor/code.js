@@ -2,15 +2,21 @@
 //  code.js — the Code view: a small ESP32 (Arduino C++) editor
 //
 //  A transparent <textarea> sits over a highlighted <pre>; the two share one
-//  font and padding so the caret lines up with the coloured text. The sketch
-//  is kept in localStorage.
+//  font and padding so the caret lines up with the coloured text.
 //
-//  Exports: App.setView, App.getSketch, App.setSketch
+//  The editor holds several sketch files, one tab each. Every ESP32 on the
+//  board runs one of them, named in its values.sketch. The files are kept in
+//  localStorage and travel inside circuit files.
+//
+//  Exports: App.setView, App.openSketch, App.getSketch, App.sketchFiles,
+//           App.setSketchFiles, App.claimSketch, App.addSketch, App.ensureSketch, App.dropSketch
 // ─────────────────────────────────────────────────────────────
 
 (function (App) {
 
-  const KEY = 'surge_sketch';
+  const KEY = 'surge_sketches';
+  const OLD_KEY = 'surge_sketch';       // one sketch, before there were files
+  const NAME_RE = /^[\w\-. ]{1,40}$/;
   const STARTER = `// Blink the on-board LED on an ESP32
 const int LED_PIN = 2;
 
@@ -24,6 +30,13 @@ void loop() {
   delay(500);
   digitalWrite(LED_PIN, LOW);
   delay(500);
+}
+`;
+
+  const SKELETON = `void setup() {
+}
+
+void loop() {
 }
 `;
 
@@ -66,11 +79,114 @@ void loop() {
     const pos    = document.getElementById('code-pos');
     const app    = document.getElementById('app');
 
-    let saved = null;
-    try { saved = localStorage.getItem(KEY); } catch {}
-    input.value = saved != null ? saved : STARTER;
+    const tabList = view.querySelector('.code-tab-list');
+    const usedBy = document.getElementById('code-used-by');
+
+    // ── The files ────────────────────────────────────────────
+    let files = [], active = 0;
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (saved && Array.isArray(saved.files)) {
+        files = saved.files.filter(f => f && NAME_RE.test(f.name) && typeof f.code === 'string');
+        active = Math.min(Math.max(saved.active | 0, 0), files.length - 1);
+      } else {
+        const old = localStorage.getItem(OLD_KEY);
+        if (old != null) files = [{ name: 'sketch.ino', code: old }];
+      }
+    } catch {}
+    if (!files.length) { files = [{ name: 'sketch.ino', code: STARTER }]; active = 0; }
+
+    const find = name => files.find(f => f.name === name);
+    const esp32s = () => (App.state ? App.state.components.filter(c => c.type === 'esp32') : []);
+    const sketchOf = c => c.values && c.values.sketch;
+
+    function nextName() {
+      if (!find('sketch.ino')) return 'sketch.ino';
+      for (let n = 2; ; n++) if (!find(`sketch_${n}.ino`)) return `sketch_${n}.ino`;
+    }
 
     let lineCount = 0;
+    function select(index) {
+      active = Math.min(Math.max(index, 0), files.length - 1);
+      input.value = files[active].code;
+      input.setSelectionRange(0, 0);
+      input.scrollTop = input.scrollLeft = 0;
+      renderTabs();
+      render();
+    }
+
+    function renderTabs() {
+      tabList.replaceChildren();
+      files.forEach((file, i) => {
+        const tab = document.createElement('div');
+        tab.className = 'code-tab' + (i === active ? ' on' : '');
+        tab.setAttribute('role', 'tab');
+        tab.tabIndex = 0;
+        const label = document.createElement('span');
+        label.textContent = file.name;
+        tab.append(label);
+        const inUse = esp32s().some(c => sketchOf(c) === file.name);
+        if (!inUse && files.length > 1) {
+          const close = document.createElement('button');
+          close.className = 'code-tab-x';
+          close.title = 'Delete this file';
+          close.setAttribute('aria-label', 'Delete ' + file.name);
+          close.textContent = '×';
+          close.addEventListener('click', e => { e.stopPropagation(); remove(i); });
+          tab.append(close);
+        }
+        tab.addEventListener('click', () => { if (i !== active) select(i); });
+        tab.addEventListener('dblclick', () => rename(tab, label, i));
+        tabList.append(tab);
+      });
+      const ids = App.componentIds ? App.componentIds() : [];
+      const using = esp32s().filter(c => sketchOf(c) === files[active].name)
+        .map(c => ids[App.state.components.indexOf(c)]).filter(Boolean);
+      usedBy.textContent = using.length ? 'Runs on ' + using.join(', ') : 'Not used by an ESP32';
+    }
+
+    // Deleted files wait here, so undoing the deletion of an ESP32 brings its code back.
+    const trash = new Map();
+
+    function remove(i) {
+      trash.set(files[i].name, files[i].code);
+      files.splice(i, 1);
+      // The editor always has a file. This stand-in gives way if the deleted one comes back.
+      if (!files.length) files.push({ name: 'sketch.ino', code: STARTER, fallback: true });
+      persist();
+      select(i === active ? Math.max(0, i - 1) : (i < active ? active - 1 : active));
+    }
+
+    // Double-click a tab to rename it in place.
+    function rename(tab, label, i) {
+      const old = files[i].name;
+      const field = document.createElement('input');
+      field.className = 'code-tab-input';
+      field.value = old;
+      field.maxLength = 40;
+      field.spellcheck = false;
+      label.replaceWith(field);
+      field.focus();
+      field.select();
+      let done = false;
+      const finish = commit => {
+        if (done) return;
+        done = true;
+        if (commit) {
+          let next = field.value.trim();
+          if (next && !/\.\w+$/.test(next)) next += '.ino';
+          if (next !== old && NAME_RE.test(next) && !find(next)) App.renameSketch(old, next);
+        }
+        renderTabs();
+      };
+      field.addEventListener('keydown', e => {
+        if (e.key === 'Enter') finish(true);
+        else if (e.key === 'Escape') finish(false);
+        e.stopPropagation();
+      });
+      field.addEventListener('blur', () => finish(true));
+    }
+
     function render() {
       const src = input.value;
       // A trailing newline needs a character after it or the last line collapses.
@@ -103,7 +219,9 @@ void loop() {
     let _saveTimer;
     function persist() {
       clearTimeout(_saveTimer);
-      _saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, input.value); } catch {} }, 400);
+      _saveTimer = setTimeout(() => {
+        try { localStorage.setItem(KEY, JSON.stringify({ files, active })); } catch {}
+      }, 400);
     }
 
     // execCommand keeps the browser's own undo stack; setRangeText is the fallback.
@@ -143,7 +261,7 @@ void loop() {
       }
     });
 
-    input.addEventListener('input', () => { render(); persist(); });
+    input.addEventListener('input', () => { delete files[active].fallback; files[active].code = input.value; render(); persist(); });
     input.addEventListener('scroll', syncScroll);
     ['keyup', 'click', 'select'].forEach(ev => input.addEventListener(ev, updatePos));
     document.addEventListener('selectionchange', () => { if (document.activeElement === input) updatePos(); });
@@ -151,21 +269,93 @@ void loop() {
     // ── Board / Code switch ──────────────────────────────────
     const buttons = document.querySelectorAll('.mode-btn[data-view]');
     App.setView = function (name) {
-      const code = name === 'code';
-      app.classList.toggle('view-code', code);
-      view.hidden = !code;
+      const showCode = name === 'code';
+      app.classList.toggle('view-code', showCode);
+      view.hidden = !showCode;
       buttons.forEach(b => b.classList.toggle('active', b.dataset.view === name));
-      if (code) { render(); input.focus(); }
+      if (showCode) { renderTabs(); render(); input.focus(); }
     };
     buttons.forEach(b => b.addEventListener('click', () => App.setView(b.dataset.view)));
 
-    App.getSketch = () => input.value;
-    App.setSketch = text => {
-      input.value = text;
-      render();
+    // ── Files, for the rest of the editor ────────────────────
+    // The text of a file by name, or of the open one with no name.
+    App.getSketch = name => name === undefined ? files[active].code : (find(name) ? find(name).code : '');
+    App.hasSketch = name => !!find(name);
+    App.sketchFiles = () => files.map(f => ({ name: f.name, code: f.code }));
+
+    // A file with this name that was just deleted comes back with its text.
+    App.addSketch = function (name, code) {
+      if (code == null && name && trash.has(name)) { code = trash.get(name); trash.delete(name); }
+      const file = { name: name || nextName(), code: code != null ? code : (files.length ? SKELETON : STARTER) };
+      files.push(file);
       persist();
+      renderTabs();
+      return file.name;
     };
-    render();
+
+    // Replace every file, as when a circuit is opened.
+    App.setSketchFiles = function (list) {
+      const next = (list || []).filter(f => f && NAME_RE.test(f.name) && typeof f.code === 'string');
+      if (!next.length) return;
+      files = next.map(f => ({ name: f.name, code: f.code }));
+      persist();
+      select(0);
+    };
+
+    // The file for an ESP32 that has none yet: one no other ESP32 runs, else a new one.
+    App.claimSketch = function () {
+      const taken = new Set(esp32s().map(sketchOf));
+      const free = files.find(f => !taken.has(f.name));
+      return free ? free.name : App.addSketch();
+    };
+
+    // Make sure a file exists for an ESP32 that is being put back (undo, redo, or
+    // opening a circuit): a deleted one returns with its text.
+    App.ensureSketch = function (name) {
+      const file = find(name);
+      if (file && !(file.fallback && trash.has(name))) return;
+      if (!file) { App.addSketch(name); return; }
+      file.code = trash.get(name);
+      delete file.fallback;
+      trash.delete(name);
+      persist();
+      if (files[active] === file) select(active); else renderTabs();
+    };
+
+    // Delete a file by name, as when the ESP32 that ran it is deleted.
+    App.dropSketch = function (name) {
+      const i = files.findIndex(f => f.name === name);
+      if (i >= 0) remove(i);
+    };
+
+    App.renameSketch = function (old, next) {
+      const file = find(old);
+      if (!file || find(next) || !NAME_RE.test(next)) return false;
+      file.name = next;
+      esp32s().forEach(c => { if (sketchOf(c) === old) c.values.sketch = next; });
+      persist();
+      if (App.scheduleAutoSave) App.scheduleAutoSave();
+      renderTabs();
+      return true;
+    };
+
+    // Open the Code view on a file.
+    App.openSketch = function (name) {
+      const i = files.findIndex(f => f.name === name);
+      if (i >= 0) select(i);
+      App.setView('code');
+    };
+
+    // The tabs show which files are in use, so redraw them when the board changes.
+    App.refreshSketchTabs = () => { if (!view.hidden) renderTabs(); };
+
+    view.querySelector('.code-tab-add').addEventListener('click', () => {
+      App.addSketch();
+      select(files.length - 1);
+      input.focus();
+    });
+
+    select(active);
   });
 
 })(window.App = window.App || {});

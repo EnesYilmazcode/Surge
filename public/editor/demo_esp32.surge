@@ -126,7 +126,9 @@
           "row": "b"
         }
       ],
-      "values": {}
+      "values": {
+        "sketch": "sketch.ino"
+      }
     },
     {
       "type": "resistor",
@@ -188,5 +190,10 @@
       "color": 1118481
     }
   ],
-  "code": "// Blink an LED wired to GPIO 2 (D2) through a 470 ohm resistor\nconst int LED_PIN = 2;\n\nvoid setup() {\n  pinMode(LED_PIN, OUTPUT);\n}\n\nvoid loop() {\n  digitalWrite(LED_PIN, HIGH);\n  delay(500);\n  digitalWrite(LED_PIN, LOW);\n  delay(500);\n}\n"
+  "files": [
+    {
+      "name": "sketch.ino",
+      "code": "// Blink an LED wired to GPIO 2 (D2) through a 470 ohm resistor\nconst int LED_PIN = 2;\n\nvoid setup() {\n  pinMode(LED_PIN, OUTPUT);\n}\n\nvoid loop() {\n  digitalWrite(LED_PIN, HIGH);\n  delay(500);\n  digitalWrite(LED_PIN, LOW);\n  delay(500);\n}\n"
+    }
+  ]
 }

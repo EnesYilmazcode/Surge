@@ -411,6 +411,11 @@
       values: App.componentValues('esp32', values),
       holeRefs: holes.map(h => ({ col: h.col, row: h.row })),   // App.ESP32_PINS order
     };
+    // Every ESP32 runs one sketch file: the one it was saved with, or a free one.
+    if (App.claimSketch) {
+      if (!record.values.sketch) record.values.sketch = App.claimSketch();
+      else App.ensureSketch(record.values.sketch);
+    }
     addPinMarkers(record);
     state.components.push(record);
     refreshCounts();
@@ -627,6 +632,16 @@
     refreshCounts();
   };
 
+  // A sketch file goes with the ESP32 that ran it, unless another ESP32 still does.
+  // Call it after the parts have left state.components.
+  function releaseSketches(removed) {
+    if (!App.dropSketch) return;
+    removed.forEach(c => {
+      const name = c.type === 'esp32' && c.values && c.values.sketch;
+      if (name && !state.components.some(o => o.type === 'esp32' && o.values.sketch === name)) App.dropSketch(name);
+    });
+  }
+
   // Remove a part, its off-board pin targets, and wires tied to its pins.
   App.removeComponent = function (comp) {
     if (!comp) return false;
@@ -636,6 +651,7 @@
     App.scene.remove(comp.group);
     App.disposeGroup(comp.group);
     state.components = state.components.filter(c => c !== comp);
+    releaseSketches([comp]);
     state.wires = state.wires.filter(w => {
       if (w.startComp !== comp && w.endComp !== comp) return true;
       App.scene.remove(w.group);
@@ -710,7 +726,7 @@
       version:   1,
       name,
       thumbnail: captureIsometricThumb(),
-      code:      App.getSketch ? App.getSketch() : undefined,
+      files:     App.sketchFiles ? App.sketchFiles() : undefined,
       components: state.components.map((c, i) => ({
         type:     c.type,
         id:       c.type + '_' + i,
@@ -749,6 +765,7 @@
   App.loadCircuitData = function (data) {
     data = WorkbenchFiles.validate(data);
     App.clearAll();
+    if (data.files && App.setSketchFiles) App.setSketchFiles(data.files);
     restoreBoard(data);
 
     // Sync circuit name + ID
@@ -758,7 +775,6 @@
       if (nf) nf.textContent = data.name;
     }
     if (data.id) state.circuitId = data.id;
-    if (typeof data.code === 'string' && App.setSketch) App.setSketch(data.code);
 
     App.setHint(`Opened "${data.name || 'circuit'}"`, 2000);
   };
@@ -1010,7 +1026,7 @@
   // ── Clear All ─────────────────────────────────────────────────
 
   // Tear down every scene object, leaving the circuit's name and ID alone.
-  function clearBoard() {
+  function clearBoard(keepSketches) {
     App.stopSimulation?.();
     App.deselect();
     App.cancelWire();
@@ -1021,11 +1037,14 @@
       App.disposeGroup(c.group);
     });
     state.wires.forEach(w => { App.scene.remove(w.group); App.disposeGroup(w.group); });
+    const removed = state.components;
     state.components = [];
     state.wires      = [];
+    // Undo and redo rebuild the board around the same files, so they keep them.
+    if (!keepSketches) releaseSketches(removed);
   }
 
-  App.clearBoard = clearBoard;   // empties the board, keeps the circuit's name
+  App.clearBoard = () => clearBoard();   // empties the board, keeps the circuit's name
 
   App.clearAll = function () {
     pushHistory();
@@ -1098,8 +1117,10 @@
   }
 
   function applySnapshot(snap) {
-    clearBoard();
+    const before = state.components;
+    clearBoard(true);
     restoreBoard(snap);
+    releaseSketches(before);   // an ESP32 that is gone after the undo or redo takes its file with it
     state.circuitId   = snap.id;
     state.circuitName = snap.name;
     const nf = document.getElementById('circuit-name-field');
@@ -1167,7 +1188,7 @@
       updatedAt:  new Date().toISOString(),
       components: board.components,
       wires:      board.wires,
-      code:       App.getSketch ? App.getSketch() : undefined,
+      files:      App.sketchFiles ? App.sketchFiles() : undefined,
     };
 
     const projects = lsProjects();
@@ -1181,6 +1202,8 @@
     const wc = document.getElementById('wire-count');
     if (cc) cc.textContent = state.components.length;
     if (wc) wc.textContent = state.wires.length;
+
+    if (App.refreshSketchTabs) App.refreshSketchTabs();
 
     const clearBtn = document.getElementById('clear-all-btn');
     const empty = !state.components.length && !state.wires.length;

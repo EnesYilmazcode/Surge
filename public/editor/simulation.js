@@ -104,17 +104,24 @@
   }
 
   // Each supply is a virtual battery, so the solver and the report treat it
-  // like any other source. `drive` maps a GPIO number to 0 or 1.
-  function espSupplies(graph, drive) {
+  // like any other source. `pins` maps a component's index to what that ESP32
+  // drives, as { gpio: 0 or 1 }. Without it (the Node tests) every OUTPUT pin
+  // in `sketch` reads HIGH.
+  function espSupplies(graph, pins, sketch) {
     const out = [];
-    graph.forEach(({ comp, nodes }) => {
+    const boards = graph.filter(g => g.comp.type === 'esp32').length;
+    let seen = 0;
+    graph.forEach(({ comp, nodes }, ci) => {
       if (comp.type !== 'esp32') return;
+      const name = boards > 1 ? 'ESP32 #' + (++seen) : 'ESP32';
       const add = (pin, volts) => out.push({
-        comp: { type: 'battery', virtual: true, label: 'ESP32 ' + ESP32_PINS[pin], values: { voltage: volts }, pins: [0, 1], holeRefs: null },
+        comp: { type: 'battery', virtual: true, label: name + ' ' + ESP32_PINS[pin], values: { voltage: volts }, pins: [0, 1], holeRefs: null },
         nodes: [nodes[pin], nodes[ESP32_GNDS[1]]],
       });
       add(ESP32_3V3, 3.3);
-      Object.keys(drive).forEach(gpio => {
+      let drive = pins && pins[ci];
+      if (!pins) { drive = {}; outputPins(sketch).forEach(n => { drive[n] = 1; }); }
+      Object.keys(drive || {}).forEach(gpio => {
         const pin = GPIO_INDEX[gpio];
         if (pin !== undefined) add(pin, drive[gpio] ? 3.3 : 0);
       });
@@ -122,15 +129,16 @@
     return out;
   }
 
-  // What digitalRead sees on each GPIO: 0 when the pin is wired to GND, 1 when
-  // wired to 3V3, null when it goes nowhere.
+  // What digitalRead sees on each GPIO of each ESP32, by component index: 0
+  // when the pin is wired to GND, 1 when wired to 3V3, null when it goes nowhere.
   function espInputs(graph) {
     const out = {};
-    graph.forEach(({ comp, nodes }) => {
+    graph.forEach(({ comp, nodes }, ci) => {
       if (comp.type !== 'esp32') return;
+      out[ci] = {};
       Object.keys(GPIO_INDEX).forEach(gpio => {
         const node = nodes[GPIO_INDEX[gpio]];
-        out[gpio] = node === nodes[ESP32_GNDS[1]] ? 0 : node === nodes[ESP32_3V3] ? 1 : null;
+        out[ci][gpio] = node === nodes[ESP32_GNDS[1]] ? 0 : node === nodes[ESP32_3V3] ? 1 : null;
       });
     });
     return out;
@@ -328,12 +336,7 @@
     }
 
     const built     = buildGraph(components, wires);
-    let drive = options && options.pins;
-    if (!drive) {
-      drive = {};
-      outputPins(options && options.sketch).forEach(n => { drive[n] = 1; });
-    }
-    const graph     = built.concat(espSupplies(built, drive));
+    const graph     = built.concat(espSupplies(built, options && options.pins, options && options.sketch));
     const lines     = [];
     const branches  = [];
     const ledsOn    = [];
@@ -676,9 +679,11 @@
   //  each change solves the circuit again.
   let _playback = null;      // the timer that replays the sketch
   let _sketchToken = 0;      // bumped to drop a sketch run that is no longer wanted
+  let _sketchErrors = [];    // lines for sketches that could not run, shown under the results
 
   function stopPlayback() {
     _sketchToken++;
+    _sketchErrors = [];
     if (_playback) { clearInterval(_playback); _playback = null; }
   }
 
@@ -687,7 +692,7 @@
     const { components, wires } = App.state;
     clearSimVisuals(); // preserve button states across re-runs
     const result = analyze(components, wires, { pins });
-    showResults(result.lines);
+    showResults(result.lines.concat(_sketchErrors));
     if (result.status === 'empty') return result;
 
     const current = new Map();
@@ -706,17 +711,25 @@
   function playSketch(components, wires) {
     const token = ++_sketchToken;
     const inputs = espInputs(buildGraph(components, wires));
-    App.runSketch(App.getSketch ? App.getSketch() : '', { inputs }).then(run => {
+    const boards = [];
+    components.forEach((comp, ci) => { if (comp.type === 'esp32') boards.push({ comp, ci }); });
+
+    // Each ESP32 runs the file it is tied to.
+    Promise.all(boards.map(({ comp, ci }) =>
+      App.runSketch(App.getSketch(comp.values && comp.values.sketch), { inputs: inputs[ci] })
+        .then(run => ({ comp, ci, run }))
+    )).then(runs => {
       if (token !== _sketchToken) return;
-      if (run.error) {
-        const result = render({});
-        showResults(result.lines.concat({ text: 'Sketch: ' + run.error, cls: 'sim-err' }));
-        return;
-      }
+      _sketchErrors = runs.filter(r => r.run.error).map(r => ({
+        text: ((r.comp.values && r.comp.values.sketch) || 'sketch') + ': ' + r.run.error, cls: 'sim-err',
+      }));
       const start = performance.now();
       let last = null;
       const tick = () => {
-        const pins = run.at(run.duration ? (performance.now() - start) % run.duration : 0);
+        const elapsed = performance.now() - start, pins = {};
+        runs.forEach(({ ci, run }) => {
+          pins[ci] = run.error ? {} : run.at(run.duration ? elapsed % run.duration : 0);
+        });
         const key = JSON.stringify(pins);
         if (key === last) return;
         last = key;
@@ -725,7 +738,9 @@
       tick();
       _playback = setInterval(tick, 40);
     }).catch(error => {
-      if (token === _sketchToken) showResults(render({}).lines.concat({ text: 'Sketch: ' + error.message, cls: 'sim-err' }));
+      if (token !== _sketchToken) return;
+      _sketchErrors = [{ text: 'Sketch: ' + error.message, cls: 'sim-err' }];
+      render({});
     });
   }
 
