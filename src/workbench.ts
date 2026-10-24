@@ -32,7 +32,7 @@ async function loadScript(name: string) {
 
 async function boot() {
   const modules = ['board-model', 'scene', 'board', 'parts', 'input', 'solver', 'simulation', 'project-format', 'editor', 'inspector', 'chat', 'thumbs', 'projects']
-  if (hero) modules.push('hero')
+  if (hero) modules.push('stage', 'hero')
   for (const name of modules) {
     await loadScript(name)
   }
