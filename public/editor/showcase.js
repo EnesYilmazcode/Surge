@@ -16,6 +16,7 @@
   const PART_AT = [0.17, 0.24, 0.31];       // battery, resistor, LED
   const WIRE_AT = [0.36, 0.39, 0.43, 0.47]; // the four jumpers in demo.surge
   const RUN_AT = 0.55;                      // Run lights the LED
+  const HYST = 0.012;                       // a part is removed only well past its threshold
   const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   let target = 0;                           // where the page says we are
@@ -67,15 +68,16 @@
     ];
 
     // Each event: swing out, push in, hold briefly, then pull back to the overview.
+    // Events close together stay on their close-ups, so the camera does not
+    // bounce out and back in between two parts.
     const keys = [overview(0)];
-    for (const e of EVENTS) {
-      keys.push(
-        overview(e.p - 0.03),
-        focus(e.p, e.at, e.aOff, e.r, e.h),
-        focus(e.p + 0.02, e.at, e.aOff, e.r, e.h),
-        overview(e.p + 0.05),
-      );
-    }
+    EVENTS.forEach((e, i) => {
+      const next = EVENTS[i + 1];
+      const prevEnd = i ? EVENTS[i - 1].p + 0.05 : 0;
+      if (e.p - 0.03 > prevEnd) keys.push(overview(e.p - 0.03));
+      keys.push(focus(e.p, e.at, e.aOff, e.r, e.h), focus(e.p + 0.02, e.at, e.aOff, e.r, e.h));
+      if (!next || next.p - 0.03 > e.p + 0.05) keys.push(overview(e.p + 0.05));
+    });
     keys.push(overview(0.8), { ...overview(1), r: 34, h: 22 });
     keys.sort((a, b) => a.p - b.p);
 
@@ -115,12 +117,12 @@
 
     // Bring the placed pieces in line with progress, in both directions.
     function sync(p) {
-      if (running && p < RUN_AT) { App.stopSimulation(); running = false; }
+      if (running && p < RUN_AT - HYST) { App.stopSimulation(); running = false; }
       for (let i = WIRE_AT.length - 1; i >= 0; i--) {
-        if (p < WIRE_AT[i] && wireRecs[i]) { App.removeWire(wireRecs[i]); wireRecs[i] = null; }
+        if (p < WIRE_AT[i] - HYST && wireRecs[i]) { App.removeWire(wireRecs[i]); wireRecs[i] = null; }
       }
       for (let i = PART_AT.length - 1; i >= 0; i--) {
-        if (p < PART_AT[i] && partRecs[i]) { App.removeComponent(partRecs[i]); partRecs[i] = null; }
+        if (p < PART_AT[i] - HYST && partRecs[i]) { App.removeComponent(partRecs[i]); partRecs[i] = null; }
       }
       PART_AT.forEach((at, i) => {
         if (p < at || partRecs[i]) return;
