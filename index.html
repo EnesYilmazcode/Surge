@@ -4,8 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Surge: 3D circuit workbench</title>
-  <meta name="description" content="A 3D breadboard in your browser. Drop in real parts, wire them up, press Run, and watch the circuit light up." />
+  <meta name="description" content="A 3D breadboard in your browser. Place real parts, wire them up, and press Run." />
   <meta name="theme-color" content="#1A1814" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Surge: 3D circuit workbench" />
+  <meta property="og:description" content="Place real parts on a 3D breadboard, wire them up, and press Run." />
+  <meta property="og:url" content="https://surge-flow.web.app/" />
   <link rel="icon" href="/editor/mark.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -17,7 +21,6 @@
       --night:      #1A1814;
       --ink:        #F4F1EA;
       --ink-2:      #D8D2C7;
-      --ink-3:      #A9A39C;
       --amber:      #F59E0B;
       --amber-ink:  #B45309;
       --amber-deep: #92400E;
@@ -31,7 +34,15 @@
       color: var(--ink);
       font-family: var(--body);
       -webkit-font-smoothing: antialiased;
+      /* The page is a scene to look at, not a document to select from. */
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
     }
+
+    /* No scrollbar: the page scrolls by wheel, keys or touch. */
+    html { scrollbar-width: none; }
+    html::-webkit-scrollbar { display: none; }
 
     a { color: inherit; }
 
@@ -144,7 +155,7 @@
     .btn-ghost:hover { border-color: rgba(244,241,234,0.6); background: rgba(20,18,15,0.5); }
     .btn-sm { min-height: 2.25rem; padding: 0 0.9rem; font-size: 0.9rem; border-radius: 8px; }
 
-    /* ── The page: one screen per beat, text over the scene ─ */
+    /* ── The page: one screen per checkpoint, text over the scene ─ */
     .track {
       position: relative;
       z-index: 1;
@@ -161,31 +172,18 @@
 
     .card {
       max-width: 31rem;
-      padding: 1.6rem 1.8rem;
-      border-radius: 16px;
-      background: rgba(20,18,15,0.55);
-      border: 1px solid rgba(244,241,234,0.1);
-      -webkit-backdrop-filter: blur(8px);
-      backdrop-filter: blur(8px);
-    }
-    .kicker {
-      font-family: var(--head);
-      font-size: 0.8125rem;
-      font-weight: 600;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--amber);
+      padding: 1.1rem 1.5rem;
+      border-radius: 14px;
+      background: rgba(20,18,15,0.6);
     }
     .card h2 {
-      margin-top: 0.6rem;
       font-family: var(--head);
-      font-size: clamp(2rem, 2.6vw + 1rem, 3.25rem);
+      font-size: clamp(1.75rem, 2.2vw + 1rem, 2.75rem);
       font-weight: 700;
-      line-height: 1.04;
-      letter-spacing: -0.04em;
+      line-height: 1.06;
+      letter-spacing: -0.035em;
       text-wrap: balance;
     }
-    .card p { margin-top: 0.9rem; font-size: 1.0625rem; line-height: 1.6; color: var(--ink-2); }
 
     .intro h1 {
       font-family: var(--head);
@@ -210,25 +208,9 @@
       gap: 0.75rem;
       margin-top: 2rem;
     }
-    .hero-note {
-      margin-top: 1rem;
-      font-size: 0.875rem;
-      color: var(--ink-3);
-    }
-    .scroll-cue {
-      position: absolute;
-      left: var(--edge);
-      bottom: 1.75rem;
-      font-size: 0.8125rem;
-      color: var(--ink-3);
-    }
 
     .closing h2 {
-      font-family: var(--head);
       font-size: clamp(2.2rem, 3vw + 1rem, 3.75rem);
-      font-weight: 700;
-      letter-spacing: -0.04em;
-      line-height: 1.04;
     }
     .closing .hero-actions { justify-content: center; }
 
@@ -239,7 +221,7 @@
       text-align: center;
       padding: 2rem var(--edge) 2.5rem;
       font-size: 0.8125rem;
-      color: var(--ink-3);
+      color: var(--ink-2);
     }
     .credits a { color: var(--ink-2); text-underline-offset: 3px; }
     .credits a:hover { color: var(--amber); }
@@ -256,7 +238,7 @@
       .stage iframe { transition-duration: 0.01ms; }
     }
 
-    /* ── Small screens: cards along the bottom ───────────── */
+    /* ── Small screens: text along the bottom ────────────── */
     @media (max-width: 720px) {
       .beat { align-items: flex-end; padding-bottom: 5.5rem; }
       .beat-left, .beat-right { justify-content: stretch; }
@@ -265,7 +247,6 @@
         background: linear-gradient(0deg, rgba(20,18,15,0.85) 0%, rgba(20,18,15,0.35) 55%, rgba(20,18,15,0) 80%);
       }
       .intro { align-items: flex-end; }
-      .intro .scroll-cue { display: none; }
       .hero-actions .btn { flex: 1 1 auto; }
       .nav-link { display: none; }
     }
@@ -293,45 +274,35 @@
     <section class="beat intro" id="copy" aria-labelledby="headline">
       <div class="card intro-copy">
         <h1 id="headline">Snap a circuit together in 3D</h1>
-        <p class="lede">Drop real parts onto a breadboard, wire them up, and press Run. Scroll and the board turns to show you the rest.</p>
+        <p class="lede">Place parts, wire them up, and press Run.</p>
         <div class="hero-actions">
           <a href="app.html" class="btn btn-primary">Open the editor</a>
           <a href="app.html?demo" class="btn btn-ghost">Try the demo</a>
         </div>
-        <p class="hero-note">Free. Runs in your browser. No account needed.</p>
-      </div>
-      <p class="scroll-cue">Scroll</p>
-    </section>
-
-    <section class="beat beat-right">
-      <div class="card">
-        <p class="kicker">01 Place</p>
-        <h2>Real parts, placed into real sockets</h2>
-        <p>Each part drops onto the holes under it and clicks home, so you can see exactly what is connected.</p>
-      </div>
-    </section>
-
-    <section class="beat beat-left">
-      <div class="card">
-        <p class="kicker">02 Wire</p>
-        <h2>Click two holes and a wire arcs over the board</h2>
-        <p>Jumpers run between any two sockets or battery terminals, and settle into place as they land.</p>
       </div>
     </section>
 
     <section class="beat beat-right">
       <div class="card">
-        <p class="kicker">03 Run</p>
-        <h2>Press Run and the solver lights what should glow</h2>
-        <p>The solver works out the voltages and currents for the whole board, then lights the LEDs.</p>
+        <h2>Place real parts</h2>
       </div>
     </section>
 
     <section class="beat beat-left">
       <div class="card">
-        <p class="kicker">04 Keep</p>
-        <h2>Circuits save in your browser</h2>
-        <p>Your work autosaves in the browser. Download a .surge file to share a circuit or open one later.</p>
+        <h2>Wire it up</h2>
+      </div>
+    </section>
+
+    <section class="beat beat-right">
+      <div class="card">
+        <h2>Press Run</h2>
+      </div>
+    </section>
+
+    <section class="beat beat-left">
+      <div class="card">
+        <h2>Save in your browser</h2>
       </div>
     </section>
 
