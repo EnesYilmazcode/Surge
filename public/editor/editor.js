@@ -1125,7 +1125,11 @@
 
   // Homepage links: app.html?demo opens the demo circuit straight away.
   if (/[?&]demo\b/.test(window.location?.search ?? '') && !_pending) {
-    document.getElementById('load-demo-btn')?.click();
+    fetch('/editor/demo.surge').then(r => r.json()).then(data => {
+      data.name = 'Demo';
+      delete data.id;
+      App.loadCircuitData(data);
+    }).catch(() => App.setHint('Could not load the demo circuit', 2500));
   }
 
 })(window.App = window.App || {});
