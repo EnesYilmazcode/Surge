@@ -9,7 +9,7 @@
 (function (App) {
 
   const STEP_MS = 850;     // pause between pieces, long enough to see each drop
-  const HOLD_MS = 4200;    // how long the lit circuit stays on screen
+  const HOLD_MS = 6000;    // how long the lit circuit stays on screen
   const wait = ms => new Promise(done => setTimeout(done, ms));
 
   // Place one saved part the way rebuildBoard does. Returns its record or null.
@@ -96,6 +96,16 @@
     });
   }
 
+  // With the LED lit, the camera spins once more, settles, then pulls back to
+  // show the whole working circuit.
+  async function finale() {
+    await tween(2600, k => orbit(0.6 + 3.0 * easeOut(k), 30, 16));
+    await tween(2400, k => {
+      const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+      orbit(3.6, 30 + 14 * e, 16 + 8 * e);
+    });
+  }
+
   async function run(demo) {
     const bb = App.state.breadboard;
     // The board sits to the right of the homepage text, so shift the view left.
@@ -126,6 +136,7 @@
       }
 
       App.runSimulation();
+      if (!calm) await finale();
       await wait(HOLD_MS);
       App.stopSimulation();
     }
