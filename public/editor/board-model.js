@@ -28,7 +28,8 @@
   const BODY_ROWS = TOP_ROWS.concat(BOT_ROWS);
   const RAIL_ROWS = ['tp', 'tn', 'bn', 'bp'];
   const ON_BOARD  = ['resistor', 'led', 'buzzer', 'button'];
-  const TYPES     = ON_BOARD.concat(['battery']);
+  // The ESP32 is known so its holes count as taken, but the AI cannot place one.
+  const TYPES     = ON_BOARD.concat(['battery', 'esp32']);
   const MAX_SPAN  = 12;
 
   const DEFAULTS = {
@@ -37,6 +38,7 @@
     buzzer:   {},
     button:   {},
     battery:  { voltage: 9 },
+    esp32:    {},
   };
   // Typical forward voltage per LED colour. components.js reads this too.
   const LED_VF = { red: 2.0, yellow: 2.1, green: 2.2, blue: 3.2, white: 3.4 };
@@ -329,7 +331,7 @@
     const pin = () => ({ x: 0, y: 0, z: 0 });
     const components = board.components.map(c => {
       const values = Object.assign({}, (props && props[c.type]) || {}, c.values);
-      const o = { type: c.type, pins: [pin(), pin()], holeRefs: c.holes ? c.holes.map(h => ({ col: h.col, row: h.row })) : null, values };
+      const o = { type: c.type, pins: c.holes ? c.holes.map(pin) : [pin(), pin()], holeRefs: c.holes ? c.holes.map(h => ({ col: h.col, row: h.row })) : null, values };
       if (c.type === 'button') o.pressed = !!c.pressed;
       return o;
     });

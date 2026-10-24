@@ -46,3 +46,14 @@ test('modern component values and LED colors survive project loading', () => {
   assert.equal(result.components[2].values.color, 'blue')
   assert.equal(result.components[2].values.forwardVoltage, 3.2)
 })
+
+test('an ESP32 needs all 30 of its sockets', () => {
+  const holeRefs = []
+  for (const row of ['i', 'b']) for (let col = 5; col < 20; col++) holeRefs.push({ col, row })
+  const ok = fixture()
+  ok.components.push({ type: 'esp32', holeRefs, values: {} })
+  assert.equal(validate(ok).components[2].holeRefs.length, 30)
+  const short = fixture()
+  short.components.push({ type: 'esp32', holeRefs: holeRefs.slice(0, 2) })
+  assert.throws(() => validate(short), /30 socket/)
+})

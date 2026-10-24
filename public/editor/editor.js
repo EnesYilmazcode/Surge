@@ -240,7 +240,8 @@
   // Would a part at these holes intersect a part already on the board?
   // Compares footprints on the board plane, leads excluded, shrunk a hair
   // so parts in neighbouring rows (which do fit on a real board) pass.
-  const _probe = new THREE.Box3(), _other = new THREE.Box3();
+  const _probe = new THREE.Box3();
+  let _probeKey = '';
   function bodyBox(group, box) {
     box.makeEmpty();
     group.updateMatrixWorld(true);
@@ -252,17 +253,26 @@
     });
     return box.expandByScalar(-0.03);
   }
+  // A placed part never moves, so its footprint is worked out once per group,
+  // and the probe once per hover position: an ESP32 is a few hundred meshes.
+  function placedBox(group) {
+    return group.userData._bodyBox || (group.userData._bodyBox = bodyBox(group, new THREE.Box3()));
+  }
   App.overlapsPart = function (type, holeA, holeB) {
-    const build = { resistor: App.buildResistor, led: App.buildLED, buzzer: App.buildBuzzer, button: App.buildButton }[type];
+    const build = { resistor: App.buildResistor, led: App.buildLED, buzzer: App.buildBuzzer, button: App.buildButton, esp32: App.buildESP32 }[type];
     if (!build) return false;
-    const probe = build(holeA, holeB).group;
-    bodyBox(probe, _probe);
-    App.disposeGroup(probe);
+    const key = type + '|' + holeA.idx + '|' + holeB.idx;
+    if (key !== _probeKey) {
+      const probe = build(holeA, holeB).group;
+      bodyBox(probe, _probe);
+      App.disposeGroup(probe);
+      _probeKey = key;
+    }
     return state.components.some(c => {
       if (!c.holeRefs) return false;
-      bodyBox(c.group, _other);
-      return _probe.max.x > _other.min.x && _probe.min.x < _other.max.x &&
-             _probe.max.z > _other.min.z && _probe.min.z < _other.max.z;
+      const other = placedBox(c.group);
+      return _probe.max.x > other.min.x && _probe.min.x < other.max.x &&
+             _probe.max.z > other.min.z && _probe.min.z < other.max.z;
     });
   };
 
@@ -344,6 +354,61 @@
     addPinMarkers(record);
     state.components.push(record);
     refreshCounts();
+  };
+
+  // ── ESP32 ────────────────────────────────────────────────────
+  //  Always straddles the centre channel with its headers in rows i and b,
+  //  which leaves a and j free for a wire on every pin's strip. It centres
+  //  on the hovered column; rotation 0 puts the USB end toward higher columns.
+  App.ESP32_ROWS = ['i', 'b'];
+
+  // The first-pin holes (antenna end) of each header for a hovered column.
+  App.esp32Anchor = function (col, rotation) {
+    const bb = state.breadboard, n = App.ESP32_DIMS.N, half = Math.floor(n / 2);
+    const start = rotation === 0 ? Math.min(Math.max(col - half, 0), bb.COLS - n)
+                                 : Math.max(Math.min(col + half, bb.COLS - 1), n - 1);
+    const [ra, rb] = rotation === 0 ? App.ESP32_ROWS : App.ESP32_ROWS.slice().reverse();
+    return { holeA: bb.getHole(start, ra), holeB: bb.getHole(start, rb) };
+  };
+
+  // All 30 pin holes, in App.ESP32_PINS order, or null if one is off the board.
+  // The headers run toward higher columns when header A is the nearer row.
+  App.esp32Holes = function (holeA, holeB) {
+    const bb = state.breadboard, step = holeA.z > holeB.z ? 1 : -1;
+    const out = [];
+    for (const base of [holeA, holeB]) {
+      for (let i = 0; i < App.ESP32_DIMS.N; i++) out.push(bb.getHole(base.col + step * i, base.row));
+    }
+    return out.every(Boolean) ? out : null;
+  };
+
+  App.placeESP32 = function (holeA, holeB, values) {
+    const holes = App.esp32Holes(holeA, holeB);
+    if (!holes) return;
+    pushHistory();
+    const { group, pins } = App.buildESP32(holeA, holeB);
+    App.scene.add(group);
+    App.snapIn(group, 1.1);
+    const record = {
+      type: 'esp32', group, pins, pinMeshes: [],
+      values: App.componentValues('esp32', values),
+      holeRefs: holes.map(h => ({ col: h.col, row: h.row })),   // App.ESP32_PINS order
+    };
+    addPinMarkers(record);
+    state.components.push(record);
+    refreshCounts();
+  };
+
+  // The ESP32 pin sharing a hole's strip, for hover labels: "D23", or null.
+  const TOP_HALF = new Set(['a', 'b', 'c', 'd', 'e']);
+  App.esp32PinOnStrip = function (hole) {
+    if (!hole || ['tp', 'tn', 'bn', 'bp'].includes(hole.row)) return null;
+    for (const c of state.components) {
+      if (c.type !== 'esp32') continue;
+      const k = c.holeRefs.findIndex(h => h.col === hole.col && TOP_HALF.has(h.row) === TOP_HALF.has(hole.row));
+      if (k >= 0) return App.ESP32_PINS[k];
+    }
+    return null;
   };
 
   // ── Toggle button pressed state ──────────────────────────────
@@ -709,6 +774,10 @@
         const hA = bb.getHole(c.holeRefs[0].col, c.holeRefs[0].row);
         const hB = bb.getHole(c.holeRefs[1].col, c.holeRefs[1].row);
         if (hA && hB) App.placeButton(hA, hB, c.values);
+      } else if (c.type === 'esp32' && c.holeRefs?.length === 30) {
+        const hA = bb.getHole(c.holeRefs[0].col, c.holeRefs[0].row);
+        const hB = bb.getHole(c.holeRefs[15].col, c.holeRefs[15].row);
+        if (hA && hB) App.placeESP32(hA, hB, c.values);
       } else if (c.type === 'battery' && c.position) {
         App.placeBattery(c.position.x, c.position.z, c.values);
       }
@@ -863,7 +932,11 @@
       comps.forEach((c, i) => {
         const id = ids[i];
         let pA = '—', pB = '—';
-        if (c.holeRefs) {
+        if (c.holeRefs && c.holeRefs.length > 2) {
+          const h = c.holeRefs, n = h.length / 2, f = App.formatHole;
+          pA = `${f(h[0])}–${f(h[n - 1])}`;
+          pB = `${f(h[n])}–${f(h[2 * n - 1])}`;
+        } else if (c.holeRefs) {
           pA = App.formatHole(c.holeRefs[0]);
           pB = App.formatHole(c.holeRefs[1]);
           if (c.type === 'led') { pA += ' (cathode −)'; pB += ' (anode +)'; }
@@ -873,6 +946,11 @@
           pB = `off-board − → wire ref: ${id}_pin1`;
         }
         md += `| ${id} | ${c.type} | ${App.formatValue(c) || '—'} | ${pA} | ${pB} |\n`;
+      });
+      comps.forEach((c, i) => {
+        if (c.type !== 'esp32') return;
+        md += `\n${ids[i]} pins (not simulated; wire to a free hole on a pin's strip): ` +
+              c.holeRefs.map((h, k) => `${App.ESP32_PINS[k]}=${App.formatHole(h)}`).join(', ') + '\n';
       });
     }
 

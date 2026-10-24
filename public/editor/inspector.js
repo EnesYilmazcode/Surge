@@ -17,10 +17,11 @@
     battery: 'The 9 V supply. Wire + to a red rail and − to a blue rail, then feed the board from the rails.',
     buzzer: 'Beeps when about 9 V is across it, + leg toward power.',
     button: 'Connects its two legs only while pressed. During a simulation, click it to press.',
+    esp32: 'A Wi-Fi and Bluetooth microcontroller board. Each pin shares its strip with the free hole beside it, so wire to that hole. Not simulated yet.',
   };
 
   const ohms = r => r >= 1000 ? (r / 1000) + ' kΩ' : r + ' Ω';
-  const title = t => ({ resistor: 'Resistor', led: 'LED', battery: '9 V battery', buzzer: 'Buzzer', button: 'Push button' }[t] || t);
+  const title = t => ({ resistor: 'Resistor', led: 'LED', battery: '9 V battery', buzzer: 'Buzzer', button: 'Push button', esp32: 'ESP32 DevKit' }[t] || t);
 
   let card = null;
 
@@ -36,7 +37,9 @@
 
   function where(item) {
     if (!item.holeRefs) return 'Off the board';
-    return item.holeRefs.map(App.formatHole).join(' → ');
+    const h = item.holeRefs, f = App.formatHole;
+    if (h.length > 2) return `${f(h[0])}–${f(h[h.length / 2 - 1])}, ${f(h[h.length / 2])}–${f(h[h.length - 1])}`;
+    return h.map(f).join(' → ');
   }
 
   App.showInspector = function (item, kind) {
