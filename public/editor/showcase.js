@@ -12,7 +12,6 @@
 
   const { easeOut, tween, contact, contactPart, placePart, placeJumper } = App.stage;
 
-  const FAR_SIDE = Math.PI;                 // half a revolution across the page
   const PART_AT = [0.17, 0.24, 0.31];       // battery, resistor, LED
   const WIRE_AT = [0.36, 0.39, 0.43, 0.47]; // the four jumpers in demo.surge
   const RUN_AT = 0.55;                      // Run lights the LED
@@ -52,10 +51,10 @@
     const SIGNAL   = midOf(hole(4, 'b'), hole(10, 'c'));
 
     // A camera key: the orbit centre, what it looks at, and the orbit shape.
-    const overview = p => {
-      const s = Math.sin(Math.PI * p);
-      return { p, center: ORIGIN, look: LOOK, r: 24 - 3 * s, h: 14 + 4 * s, a: 0.6 + FAR_SIDE * p };
-    };
+    // The overview orbits the whole board at angle a. Each overview takes the
+    // angle of the close-up before it, so the angle only ever increases as the
+    // page scrolls, and the camera never swings back the way it came.
+    const overview = (p, a) => ({ p, center: ORIGIN, look: LOOK, r: 24, h: 14, a });
     // Close-up angles are absolute, not relative to the sweep. The camera sits
     // at +z for angle 0, which is the side of the battery that carries its label.
     const focus = (p, at, a, r, h) => ({ p, center: at, look: at, r, h, a });
@@ -65,22 +64,25 @@
       { p: PART_AT[1], at: RESISTOR, a: 0.35, r: 6.5, h: 4.5 },
       { p: PART_AT[2], at: LED,      a: 0.5,  r: 6, h: 4 },
       { p: 0.375,      at: RAILS,    a: 0.9,  r: 8, h: 6 },
-      { p: 0.45,       at: SIGNAL,   a: 0.15, r: 7, h: 5 },
-      { p: RUN_AT,     at: LED,      a: 0.3,  r: 8, h: 5 },
+      { p: 0.45,       at: SIGNAL,   a: 1.1,  r: 7, h: 5 },
+      { p: RUN_AT,     at: LED,      a: 1.4,  r: 8, h: 5 },
     ];
 
-    // Each event: swing out, push in, hold briefly, then pull back to the overview.
-    // Events close together stay on their close-ups, so the camera does not
-    // bounce out and back in between two parts.
-    const keys = [overview(0)];
+    // Each event: push in, hold briefly, then pull back to the overview at the
+    // same angle. Events close together stay on their close-ups, so the camera
+    // does not bounce out and back in between two parts.
+    const keys = [overview(0, 0)];
+    let prevA = 0;
     EVENTS.forEach((e, i) => {
       const next = EVENTS[i + 1];
       const prevEnd = i ? EVENTS[i - 1].p + 0.05 : 0;
-      if (e.p - 0.03 > prevEnd) keys.push(overview(e.p - 0.03));
+      if (e.p - 0.03 > prevEnd) keys.push(overview(e.p - 0.03, prevA));
       keys.push(focus(e.p, e.at, e.a, e.r, e.h), focus(e.p + 0.02, e.at, e.a, e.r, e.h));
-      if (!next || next.p - 0.03 > e.p + 0.05) keys.push(overview(e.p + 0.05));
+      if (!next || next.p - 0.03 > e.p + 0.05) keys.push(overview(e.p + 0.05, e.a));
+      prevA = e.a;
     });
-    keys.push(overview(0.8), { ...overview(1), r: 34, h: 22 });
+    // After Run, the camera swings to the far side and pulls wide.
+    keys.push(overview(0.8, 2.6), { ...overview(1, 3.9), r: 34, h: 22 });
     keys.sort((a, b) => a.p - b.p);
 
     // The camera state at progress p, blended smoothly between keys.
@@ -155,7 +157,7 @@
     tween(2400, k => {
       const e = easeOut(k);
       board.position.y = rest + 7 * (1 - e);
-      frame({ center: ORIGIN, look: LOOK, r: 24 + 14 * (1 - e), h: 14 + 10 * (1 - e), a: 0.6 - 5.5 * (1 - e) });
+      frame({ center: ORIGIN, look: LOOK, r: 24 + 14 * (1 - e), h: 14 + 10 * (1 - e), a: -5.5 * (1 - e) });
     }).then(() => {
       // A critically damped spring follows the page. It never overshoots, so a
       // hard scroll glides to the new spot instead of swinging back and forth.
