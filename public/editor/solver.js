@@ -36,9 +36,21 @@
 //  parallel with a current source), solve the linear system,
 //  repeat until the node voltages stop moving.
 //
-//  Shockley:   I  = Is·(exp(V/(N·Vt)) − 1)
-//  Companion:  Geq = dI/dV = Is/(N·Vt)·exp(V/(N·Vt))
-//              Ieq = I − Geq·V
+//  Two diode models are available per element:
+//
+//    'shockley'  I  = Is·(exp(V/(N·Vt)) − 1)          exponential, real
+//                Geq = dI/dV = Is/(N·Vt)·exp(V/(N·Vt))
+//                Ieq = I − Geq·V
+//
+//    'pwl'       ideal switch with a fixed forward drop: conducting
+//                above Vf with a small Ron, open below it. This is
+//                the standard first-order LED model and is what the
+//                simulator uses, because a constant 2.0V drop is the
+//                number a breadboard teaching tool should show.
+//
+//  Both are solved by the same Newton loop. Only the companion model
+//  differs; KCL is enforced at every node either way, which is the
+//  part the old path-walking engine got wrong.
 //
 //  Runs in the browser and in Node (for the test suite).
 //
@@ -62,6 +74,8 @@
   const V_TOL      = 1e-7;    // node voltage convergence, volts
   const I_TOL      = 1e-12;   // branch current convergence, amps
   const V_CRIT_CAP = 0.9;     // per-iteration voltage step limiter
+  const D_RON      = 1e-3;    // PWL diode on-resistance, ohms
+  const D_ROFF     = 1e12;    // PWL diode off-resistance, ohms
 
   // ─────────────────────────────────────────────────────────────
   //  Dense linear solve: Gaussian elimination, partial pivoting
@@ -197,6 +211,8 @@
 
     // Precompute diode model params once
     for (const d of diodes) {
+      d._model = d.model || 'shockley';
+      if (d._model === 'pwl') { d._state = false; continue; }
       if (d._is === undefined) {
         d._n    = d.n || 2.0;             // LEDs run high, 1.8–3
         d._is   = saturationCurrent(d.vf, d.iRated || 0.02, d._n);
@@ -209,7 +225,8 @@
     const row = id => (id === ground ? -1 : idx.get(id));
 
     // Newton-Raphson state: guess each diode just below its knee
-    const vd = diodes.map(d => d.vf * 0.8);
+    const vd = diodes.map(d => (d._model === 'pwl' ? d.vf : d.vf * 0.8));
+    let stateChanged = false;
 
     let x = null, iter = 0, converged = false;
 
@@ -233,11 +250,19 @@
 
       // Diode companion models, linearized about vd[k]
       diodes.forEach((d, k) => {
-        const v  = vd[k];
-        const ex = Math.exp(Math.min(v / d._vth, 80));   // guard overflow
-        const id_ = d._is * (ex - 1);
-        const geq = Math.max(d._is / d._vth * ex, GMIN);
-        const ieq = id_ - geq * v;
+        const v = vd[k];
+        let geq, ieq;
+
+        if (d._model === 'pwl') {
+          // Conducting above the forward drop, open below it.
+          if (d._state) { geq = 1 / D_RON;  ieq = -d.vf / D_RON; }
+          else          { geq = 1 / D_ROFF; ieq = 0; }
+        } else {
+          const ex  = Math.exp(Math.min(v / d._vth, 80));   // guard overflow
+          const id_ = d._is * (ex - 1);
+          geq = Math.max(d._is / d._vth * ex, GMIN);
+          ieq = id_ - geq * v;
+        }
 
         const a = row(d.a), b = row(d.b);
         if (a >= 0) A[a][a] += geq;
@@ -272,11 +297,23 @@
 
       // ── Convergence check on diode voltages ─────────────────
       let maxDelta = 0;
+      stateChanged = false;
       const nextVd = diodes.map((d, k) => {
         const va = d.a === ground ? 0 : sol[idx.get(d.a)];
         const vb = d.b === ground ? 0 : sol[idx.get(d.b)];
         let vNew = va - vb;
-        vNew = limitJunction(vNew, vd[k], d._vth, d._vcrit);
+
+        if (d._model === 'pwl') {
+          // A conducting diode is held at Vf, so the test for staying
+          // on is whether current still wants to flow forward through
+          // it, not whether the node voltage exceeds Vf.
+          const iFwd  = d._state ? (vNew - d.vf) / D_RON : 0;
+          const want  = d._state ? iFwd > 0 : vNew >= d.vf;
+          if (want !== d._state) { d._state = want; stateChanged = true; }
+        } else {
+          vNew = limitJunction(vNew, vd[k], d._vth, d._vcrit);
+        }
+
         maxDelta = Math.max(maxDelta, Math.abs(vNew - vd[k]));
         return vNew;
       });
@@ -284,7 +321,8 @@
       x = sol;
       for (let k = 0; k < diodes.length; k++) vd[k] = nextVd[k];
 
-      if (diodes.length === 0 || maxDelta < V_TOL) { converged = true; break; }
+      if (diodes.length === 0) { converged = true; break; }
+      if (!stateChanged && maxDelta < V_TOL) { converged = true; break; }
     }
 
     // ── Unpack ────────────────────────────────────────────────
@@ -298,9 +336,13 @@
       if (e.kind === 'resistor') {
         currents[e.id] = (vAt(e.a) - vAt(e.b)) / Math.max(e.resistance, 1e-9);
       } else if (e.kind === 'diode') {
-        const v  = vAt(e.a) - vAt(e.b);
-        const ex = Math.exp(Math.min(v / e._vth, 80));
-        currents[e.id] = e._is * (ex - 1);
+        const v = vAt(e.a) - vAt(e.b);
+        if (e._model === 'pwl') {
+          currents[e.id] = e._state ? (v - e.vf) / D_RON : v / D_ROFF;
+        } else {
+          const ex = Math.exp(Math.min(v / e._vth, 80));
+          currents[e.id] = e._is * (ex - 1);
+        }
       }
     }
     vsrc.forEach((e, k) => {

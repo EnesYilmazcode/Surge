@@ -1,449 +1,388 @@
+// ─────────────────────────────────────────────────────────────
+//  chat.js — the Surge panel: ask, preview, apply
+//
+//  No model key in the browser. The prompt, tools and the simulator
+//  check live in backend/server.js behind /api/ask.
+//
+//  Every action list, from the server or anywhere else, is replayed
+//  through board-model.js against the board as it is now. That one
+//  pass decides the real holes (a lead never lands in a taken hole),
+//  so the preview, the placement and the server's check agree.
+// ─────────────────────────────────────────────────────────────
 
-// ── Surge AI chat (via backend proxy) ──────────────────────────
-const chatHistory = [];   // {role:'user'|'model', text} pairs for conversation memory
+(function () {
+  const BM = window.BoardModel;
+  const history = [];          // { role: 'user' | 'model', text }
+  let pending = null;          // { actions, ghosts, tinted }
 
-/* Model instructions and tool schemas are kept on the local server. */
+  const WIRE_HEX = { red: 0xef4444, yellow: 0xfbbf24, green: 0x22c55e, blue: 0x3b82f6, black: 0x111111, white: 0xffffff };
 
-function validateActions(actions) {
-  if (!Array.isArray(actions) || actions.length > 50) throw new Error('Invalid proposal.');
-  return actions;
-}
+  const $ = id => document.getElementById(id);
 
-async function askGeminiClient(markdown, userMsg, history) {
-  const msg = userMsg || 'Analyze my circuit and tell me what to do next.';
-  const res = await fetch('/api/surge/workbench', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ markdown, message: msg, history: history.slice(-12), board: App.exportState() }),
-  });
-  if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Surge could not complete the request.'); }
-  const data = await res.json();
-  let { reply, actions } = data;
-  reply = reply || '(no response)';
-  actions = Array.isArray(actions) ? actions : [];
-  actions = validateActions(actions);
-  return { reply, actions };
-}
+  const API_BASE = '';
 
-// ── Chat helpers ─────────────────────────────────────────────────
+  // ── Server ───────────────────────────────────────────────────
+  async function askSurge(message) {
+    const res = await fetch(API_BASE + '/api/surge/workbench', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        history: history.slice(-12),
+        markdown: App.exportMarkdown(),
+        board: App.exportBoard(),
+      }),
+    });
+    let data = null;
+    try { data = await res.json(); } catch { /* an HTML error page */ }
+    if (!res.ok || !data) {
+      throw new Error((data && (data.error || data.reply)) || 'Surge could not reach the AI service. Please try again in a moment.');
+    }
+    return {
+      reply: data.reply || '',
+      actions: Array.isArray(data.actions) ? data.actions : [],
+      notes: Array.isArray(data.notes) ? data.notes : [],
+      verification: data.verification || null,
+    };
+  }
 
-function surgeAddMsg(text, role) {
-  const welcome = document.getElementById('surge-welcome');
-  if (welcome) welcome.classList.add('hidden');
-  const box = document.getElementById('surge-messages');
-  const el  = document.createElement('div');
-  el.className   = 'chat-msg ' + role;
-  el.textContent = text;
-  box.appendChild(el);
-  box.scrollTop  = box.scrollHeight;
-  return el;
-}
+  // ── Messages ─────────────────────────────────────────────────
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
 
-function surgeTyping() {
-  const welcome = document.getElementById('surge-welcome');
-  if (welcome) welcome.classList.add('hidden');
-  const box = document.getElementById('surge-messages');
-  const el  = document.createElement('div');
-  el.className = 'chat-msg typing';
-  el.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div>';
-  box.appendChild(el);
-  box.scrollTop = box.scrollHeight;
-  return el;
-}
+  // Small, safe markdown: escaped first, then **bold**, `code` and lists.
+  function renderMarkdown(text) {
+    const inline = s => escapeHtml(s)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    const out = [];
+    let list = null;
+    for (const raw of String(text).split('\n')) {
+      const line = raw.trimEnd();
+      const li = /^\s*(?:[-*]|\d+\.)\s+(.*)$/.exec(line);
+      if (li) {
+        if (!list) { list = []; }
+        list.push('<li>' + inline(li[1]) + '</li>');
+        continue;
+      }
+      if (list) { out.push('<ul>' + list.join('') + '</ul>'); list = null; }
+      if (line.trim()) out.push('<p>' + inline(line) + '</p>');
+    }
+    if (list) out.push('<ul>' + list.join('') + '</ul>');
+    return out.join('');
+  }
 
-// ── Hole parser ──────────────────────────────────────────────────
+  function scrollDown() {
+    const box = $('surge-messages');
+    box.scrollTop = box.scrollHeight;
+  }
 
-function parseHole(str) {
-  if (!str) return [null, null];
-  const railM = str.match(/^(tp|tn|bp|bn)_(\d+)$/i);
-  if (railM) return [parseInt(railM[2]) - 1, railM[1].toLowerCase()];
-  const m = str.match(/^([a-j])(\d+)$/i);
-  if (m)    return [parseInt(m[2]) - 1, m[1].toLowerCase()];
-  return [null, null];
-}
+  function addMsg(text, role) {
+    $('surge-welcome')?.classList.add('hidden');
+    const el = document.createElement('div');
+    el.className = 'chat-msg ' + role;
+    if (role === 'ai') el.innerHTML = renderMarkdown(text);
+    else el.textContent = text;
+    $('surge-messages').appendChild(el);
+    scrollDown();
+    return el;
+  }
 
-// ── Execute actions (real placement) ────────────────────────────
+  function addTyping() {
+    $('surge-welcome')?.classList.add('hidden');
+    const el = document.createElement('div');
+    el.className = 'chat-msg typing';
+    el.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div><span class="typing-label">Building and checking…</span>';
+    $('surge-messages').appendChild(el);
+    scrollDown();
+    return el;
+  }
 
-function surgeExecActions(actions) {
-  if (!actions || !actions.length) return 0;
-  const bb = App.state.breadboard;
-  let done = 0;
-  actions.forEach(a => {
-    try {
-      if (a.tool === 'place_resistor') {
-        const hA = bb.getHole(...parseHole(a.holeA));
-        const hB = bb.getHole(...parseHole(a.holeB));
-        if (hA && hB) { App.placeResistor(hA, hB); done++; }
-      } else if (a.tool === 'place_led') {
-        const hA = bb.getHole(...parseHole(a.holeA));
-        const hB = bb.getHole(...parseHole(a.holeB));
-        if (hA && hB) { App.placeLED(hA, hB); done++; }
-      } else if (a.tool === 'place_buzzer') {
-        const hA = bb.getHole(...parseHole(a.holeA));
-        const hB = bb.getHole(...parseHole(a.holeB));
-        if (hA && hB) { App.placeBuzzer(hA, hB); done++; }
-      } else if (a.tool === 'place_button') {
-        const hA = bb.getHole(...parseHole(a.holeA));
-        const hB = bb.getHole(...parseHole(a.holeB));
-        if (hA && hB) { App.placeButton(hA, hB); done++; }
+  const ICON_OK   = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  const ICON_WARN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>';
+
+  // "Checked in the simulator: the red LED lights." to a heading and a sentence.
+  function splitVerdict(summary) {
+    const m = /^(Checked in [^:]+): (.*)$/.exec(summary || '');
+    return m ? { head: m[1], body: m[2].charAt(0).toUpperCase() + m[2].slice(1) } : { head: null, body: summary || '' };
+  }
+
+  // The simulator's verdict on a proposed build, shown under the reply.
+  function addVerification(v, notes) {
+    const el = document.createElement('div');
+    el.className = 'verify ' + (v.ok ? 'ok' : 'bad');
+    const tries = v.attempts > 1 ? `Took ${v.attempts} tries` : '';
+    const moved = notes && notes.length ? `${notes.length} lead${notes.length > 1 ? 's' : ''} moved` : '';
+    const verdict = splitVerdict(v.summary);
+    el.innerHTML =
+      `<div class="verify-head">${v.ok ? ICON_OK : ICON_WARN}<span>${escapeHtml(v.ok ? verdict.head || 'Checked in the simulator' : 'Not working yet')}</span></div>` +
+      `<div class="verify-body">${escapeHtml(verdict.body)}</div>` +
+      (!v.ok && v.problems && v.problems.length
+        ? '<ul class="verify-problems">' + v.problems.slice(0, 4).map(p => `<li>${escapeHtml(p)}</li>`).join('') + '</ul>' : '') +
+      ((tries || moved) ? `<div class="verify-meta">${escapeHtml([tries, moved].filter(Boolean).join(' · '))}</div>` : '');
+    $('surge-messages').appendChild(el);
+    scrollDown();
+  }
+
+  // ── Local check, used when the server did not send one ───────
+  function localVerify(actions) {
+    const r = BM.applyActions(BM.fromExport(App.exportBoard()), actions);
+    const outputs = r.board.components.filter(c => c.type === 'led' || c.type === 'buzzer');
+    if (!outputs.length && !r.errors.length) return null;
+    const run = pressAll => {
+      const b = JSON.parse(JSON.stringify(r.board));
+      if (pressAll) b.components.forEach(c => { if (c.type === 'button') c.pressed = true; });
+      const sim = BM.toSim(b, App.PROPS);
+      return App.simAnalyze(sim.components, sim.wires);
+    };
+    let out = run(false), viaButton = false;
+    if (out.ledsOn.length + out.buzzersOn.length < outputs.length && r.board.components.some(c => c.type === 'button')) {
+      const pressed = run(true);
+      if (pressed.ledsOn.length + pressed.buzzersOn.length > out.ledsOn.length + out.buzzersOn.length) { out = pressed; viaButton = true; }
+    }
+    const working = out.ledsOn.length + out.buzzersOn.length;
+    const shorted = out.branches.some(b => b.shorted);
+    const ok = !r.errors.length && !shorted && working === outputs.length;
+    const leds = r.board.components.filter(c => c.type === 'led').length;
+    const summary = ok
+      ? `Checked in your browser: ${working === 1 ? 'the output works' : `all ${working} outputs work`}${viaButton ? ' when you press the button' : ''}.`
+      : shorted ? 'Checked in your browser: this build shorts the battery.'
+      : `Checked in your browser: ${working} of ${outputs.length} output${outputs.length > 1 ? 's' : ''} work${leds ? '' : ''}.`;
+    return { ok, summary, problems: r.errors.concat(out.lines.filter(l => /sim-(warn|err)/.test(l.cls)).map(l => l.text.trim())), attempts: 1 };
+  }
+
+  // ── Building ─────────────────────────────────────────────────
+  function holeObj(addr) {
+    const h = BM.parseHole(addr);
+    return h ? App.state.breadboard.getHole(h.col, h.row) : null;
+  }
+
+  function batteryByIndex(k) {
+    return App.state.components.filter(c => c.type === 'battery')[k] || null;
+  }
+
+  function wireEnd(str) {
+    const hole = holeObj(str);
+    if (hole) return { world: hole.world.clone(), holeRef: { col: hole.col, row: hole.row }, pinMesh: null };
+    const m = /^battery_(\d+)_pin([01])$/i.exec(str || '');
+    const bat = m && batteryByIndex(+m[1]);
+    const pm = bat && bat.pinMeshes[+m[2]];
+    return pm ? { world: pm.userData.world.clone(), holeRef: null, pinMesh: pm } : null;
+  }
+
+  function execOne(a) {
+    const place = /^place_(resistor|led|buzzer|button)$/.exec(a.tool);
+    if (place) {
+      const hA = holeObj(a.holeA), hB = holeObj(a.holeB);
+      if (!hA || !hB) return false;
+      const fn = { resistor: App.placeResistor, led: App.placeLED, buzzer: App.placeBuzzer, button: App.placeButton }[place[1]];
+      fn(hA, hB, place[1] === 'resistor' ? { resistance: a.resistance } : place[1] === 'led' ? { color: a.color } : undefined);
+      return true;
+    }
+    switch (a.tool) {
+      case 'delete_all':
+        App.clearBoard();
+        return true;
+      case 'place_battery': {
+        const n = App.state.components.filter(c => c.type === 'battery').length;
+        const p = App.batterySlot(a.slot ?? n);
+        App.placeBattery(p.x, p.z);
+        return true;
+      }
+      case 'add_wire': {
+        const s = wireEnd(a.from), e = wireEnd(a.to);
+        if (!s || !e) return false;
+        const saved = App.state.wireColor;
+        App.state.wireColor = WIRE_HEX[a.color] ?? saved;
+        App.state.wireStart = s;
+        App.finishWire(e);
+        App.state.wireColor = saved;
+        return true;
+      }
+      case 'remove_component': {
+        const i = App.componentIds().indexOf(a.id);
+        return i >= 0 && App.removeComponent(App.state.components[i]);
+      }
+      case 'remove_wire': {
+        const w = App.state.wires.find(w => {
+          const [f, t] = App.wireLabels(w);
+          return (f === a.from && t === a.to) || (f === a.to && t === a.from);
+        });
+        return App.removeWire(w);
+      }
+    }
+    return false;
+  }
+
+  // Replay actions on the current board; one undo step for the lot.
+  function execActions(actions) {
+    const r = BM.applyActions(BM.fromExport(App.exportBoard()), actions);
+    let done = 0;
+    App.batch(() => { r.resolved.forEach(a => { if (execOne(a)) done++; }); });
+    if (App.simRunning) App.runSimulation();
+    return { done, notes: r.notes, errors: r.errors };
+  }
+
+  // ── Preview: ghosts of what the actions would build ──────────
+  const ghostWire = new Map();
+  function ghostWireMat(hex) {
+    if (!ghostWire.has(hex)) ghostWire.set(hex, new THREE.MeshStandardMaterial({ color: hex, transparent: true, opacity: 0.5, depthWrite: false }));
+    return ghostWire.get(hex);
+  }
+
+  function preview(actions) {
+    clearPreview();
+    const r = BM.applyActions(BM.fromExport(App.exportBoard()), actions);
+    if (!r.resolved.length) return false;
+    const ghosts = [], tinted = [];
+    const REMOVE = 0xdc2626;
+    const tint = g => { if (g && !tinted.includes(g)) { App.setHighlight(g, true, REMOVE); tinted.push(g); } };
+
+    const ids = App.componentIds();
+    const batPins = {};
+    App.state.components.forEach((c, i) => { if (c.type === 'battery') batPins[ids[i]] = c.pins; });
+    let batteries = App.state.components.filter(c => c.type === 'battery').length;
+    const bb = App.state.breadboard;
+    const at = addr => { const h = BM.parseHole(addr); return h ? bb.getHole(h.col, h.row) : null; };
+
+    for (const a of r.resolved) {
+      if (a.tool === 'delete_all') {
+        App.state.components.forEach(c => tint(c.group));
+        App.state.wires.forEach(w => tint(w.group));
+        Object.keys(batPins).forEach(k => delete batPins[k]);
+        batteries = 0;
       } else if (a.tool === 'place_battery') {
-        App.placeBattery(13, 0); done++;
+        const p = App.batterySlot(batteries);
+        const g = App.buildPreview('battery', null, null, true);
+        g.position.set(p.x, 0, p.z);
+        ghosts.push(g);
+        batPins['battery_' + batteries] = App.batteryPinsAt(p.x, p.z);
+        batteries++;
+      } else if (/^place_/.test(a.tool)) {
+        const g = App.buildPreview(a.tool.slice(6), at(a.holeA), at(a.holeB), true, { resistance: a.resistance, color: a.color });
+        if (g) ghosts.push(g);
       } else if (a.tool === 'add_wire') {
-        execWire(a.from, a.to, a.color); done++;
+        const end = str => {
+          const h = at(str);
+          if (h) return h.world.clone();
+          const m = /^(battery_\d+)_pin([01])$/.exec(str);
+          return m && batPins[m[1]] ? batPins[m[1]][+m[2]].clone() : null;
+        };
+        const s = end(a.from), e = end(a.to);
+        if (s && e) ghosts.push(App.buildWire(s, e, WIRE_HEX[a.color] ?? 0xef4444, { material: ghostWireMat(WIRE_HEX[a.color] ?? 0xef4444) }));
       } else if (a.tool === 'remove_component') {
-        if (execRemoveComponent(a.id)) done++;
+        const i = App.componentIds().indexOf(a.id);
+        if (i >= 0) tint(App.state.components[i].group);
       } else if (a.tool === 'remove_wire') {
-        if (execRemoveWire(a.from, a.to)) done++;
-      } else if (a.tool === 'delete_all') {
-        App.clearAll(); done++;
-      }
-    } catch (e) { console.warn('Action failed:', a, e.message); }
-  });
-  return done;
-}
-
-function execRemoveComponent(compId) {
-  const match = compId && compId.match(/^(resistor|led|battery|buzzer|button)_(\d+)$/);
-  if (!match) return false;
-  const comp = App.state.components.filter(c => c.type === match[1])[Number(match[2])];
-  if (!comp) return false;
-  App.selectItem(comp, 'component');
-  App.deleteSelected();
-  return true;
-}
-
-function execRemoveWire(fromStr, toStr) {
-  if (!fromStr || !toStr) return false;
-  const bb = App.state.breadboard;
-  // Helper to normalize a wire endpoint to a comparable string
-  function holeKey(ref) {
-    if (!ref) return null;
-    return ref.row + (ref.col + 1);
-  }
-  function pinKey(comp, pinIdx) {
-    if (!comp) return null;
-    const idx = App.state.components.indexOf(comp);
-    return `${App.componentId(comp)}_pin${pinIdx}`;
-  }
-  function wireEndKey(w, side) {
-    if (side === 'start') {
-      if (w.startHole) return holeKey(w.startHole);
-      if (w.startComp) return pinKey(w.startComp, w.startPinIdx);
-    } else {
-      if (w.endHole) return holeKey(w.endHole);
-      if (w.endComp) return pinKey(w.endComp, w.endPinIdx);
-    }
-    return null;
-  }
-  // Normalize the from/to strings for comparison
-  const normFrom = fromStr.toLowerCase();
-  const normTo = toStr.toLowerCase();
-  // Find matching wire (check both orderings)
-  const idx = App.state.wires.findIndex(w => {
-    const ws = wireEndKey(w, 'start');
-    const we = wireEndKey(w, 'end');
-    if (!ws || !we) return false;
-    return (ws === normFrom && we === normTo) || (ws === normTo && we === normFrom);
-  });
-  if (idx === -1) { console.warn('remove_wire: not found:', fromStr, '→', toStr); return false; }
-  const wire = App.state.wires[idx];
-  App.scene.remove(wire.group);
-  App.state.wires.splice(idx, 1);
-  console.log('Removed wire:', fromStr, '→', toStr);
-  return true;
-}
-
-function execWire(fromStr, toStr, colorName) {
-  const bb = App.state.breadboard;
-  const COLOR_MAP = { red: 0xef4444, yellow: 0xfbbf24, green: 0x22c55e,
-                      blue: 0x3b82f6, black: 0x111111, white: 0xffffff };
-  const colorHex = colorName ? (COLOR_MAP[colorName.toLowerCase()] || 0xef4444) : App.state.wireColor;
-
-  function resolve(str) {
-    const pinM = str.match(/^(\w+)_(\d+)_pin(\d+)$/i);
-    if (pinM) {
-      const comps = App.state.components.filter(c => c.type === pinM[1]);
-      const comp  = comps[parseInt(pinM[2])];
-      if (comp) {
-        const pm = comp.pinMeshes[parseInt(pinM[3])];
-        if (pm) return { world: pm.userData.world.clone(), holeRef: null, pinMesh: pm };
-      }
-      return null;
-    }
-    const [col, row] = parseHole(str);
-    if (col === null) return null;
-    const h = bb.getHole(col, row);
-    if (!h) return null;
-    return { world: h.world.clone(), holeRef: { col: h.col, row: h.row }, pinMesh: null };
-  }
-
-  const start = resolve(fromStr);
-  const end   = resolve(toStr);
-  if (!start || !end) return;
-  const saved = App.state.wireColor;
-  App.state.wireColor = colorHex;
-  App.state.wireStart = start;
-  App.finishWire(end);
-  App.state.wireColor = saved;
-}
-
-// ── Preview / Accept / Decline ───────────────────────────────────
-
-let _pendingActions = null;
-let _pendingBoardSignature = null;
-let surgeRequestInProgress = false;
-let _pendingGhosts  = [];
-
-const _COLOR_MAP = { red: 0xef4444, yellow: 0xfbbf24, green: 0x22c55e,
-                     blue: 0x3b82f6, black: 0x111111, white: 0xffffff };
-
-function surgePreviewActions(actions) {
-  surgeDeclineChanges();          // clear any stale preview first
-  if (!actions || !actions.length) return;
-  _pendingActions = actions;
-  _pendingBoardSignature = JSON.stringify(App.exportState());
-
-  const bb = App.state.breadboard;
-
-  // ── Pre-compute expected pin positions for pending components ──
-  // This lets wire ghosts resolve pins of components that don't exist yet.
-  const pendingPins = {};
-  const H = 2.6;                          // battery body height (must match buildBattery)
-  let pendingBatteryIdx = App.state.components.filter(c => c.type === 'battery').length;
-  for (const a of actions) {
-    if (a.tool === 'place_battery') {
-      const wx = 13, wz = 0;             // same as surgeExecActions hardcoded position
-      pendingPins[`battery_${pendingBatteryIdx}_pin0`] = new THREE.Vector3(wx - 0.32, H + 0.54, wz);
-      pendingPins[`battery_${pendingBatteryIdx}_pin1`] = new THREE.Vector3(wx + 0.32, H + 0.24, wz);
-      pendingBatteryIdx++;
-    }
-  }
-
-  // ── Build a ghost for each action ─────────────────────────────
-  for (const a of actions) {
-    let ghost = null;
-
-    // Component ghosts — use existing buildPreview (already semi-transparent)
-    if (['place_resistor','place_led','place_buzzer','place_button'].includes(a.tool)) {
-      const type = a.tool.replace('place_', '');
-      const hA   = bb.getHole(...parseHole(a.holeA));
-      const hB   = bb.getHole(...parseHole(a.holeB));
-      if (hA && hB) {
-        const SPANS = { resistor: App.RESISTOR_SPAN, led: App.LED_SPAN,
-                        buzzer: App.BUZZER_SPAN, button: App.BUTTON_SPAN };
-        const rotation = hA.col === hB.col ? 1 : 0;
-        ghost = App.buildPreview(type, SPANS[type] || 2, bb.HS, rotation);
-        ghost.position.set((hA.x + hB.x) / 2, 0, (hA.z + hB.z) / 2);
-      }
-
-    } else if (a.tool === 'place_battery') {
-      ghost = App.buildPreview('battery', 0, bb.HS, 0);
-      ghost.position.set(13, 0, 0);
-
-    } else if (a.tool === 'add_wire') {
-      ghost = _buildWireGhost(a.from, a.to, a.color, pendingPins);
-
-    } else if (a.tool === 'remove_component') {
-      // Highlight the component to be removed with red tint
-      const m = a.id && a.id.match(/^(\w+)_(\d+)$/);
-      if (m) {
-        const comps = App.state.components.filter(c => c.type === m[1]);
-        const comp = comps[parseInt(m[2])];
-        if (comp && comp.group) {
-          comp.group.traverse(child => {
-            if (child.isMesh && child.material) {
-              child._origMaterial = child.material;
-              child.material = child.material.clone();
-              child.material.color.set(0xff0000);
-              child.material.transparent = true;
-              child.material.opacity = 0.5;
-            }
-          });
-          _pendingGhosts.push({ _isRemovalHighlight: true, comp: comp });
-        }
-      }
-
-    } else if (a.tool === 'remove_wire') {
-      // Highlight the wire to be removed with red tint
-      const normFrom = a.from?.toLowerCase(), normTo = a.to?.toLowerCase();
-      function hk(ref) { return ref ? ref.row + (ref.col + 1) : null; }
-      function pk(comp, pi) { const i = App.state.components.indexOf(comp); return comp ? `${App.componentId(comp)}_pin${pi}` : null; }
-      const wire = App.state.wires.find(w => {
-        const ws = w.startHole ? hk(w.startHole) : pk(w.startComp, w.startPinIdx);
-        const we = w.endHole ? hk(w.endHole) : pk(w.endComp, w.endPinIdx);
-        return (ws === normFrom && we === normTo) || (ws === normTo && we === normFrom);
-      });
-      if (wire && wire.group) {
-        wire.group.traverse(child => {
-          if (child.isMesh && child.material) {
-            child._origMaterial = child.material;
-            child.material = child.material.clone();
-            child.material.color.set(0xff0000);
-            child.material.transparent = true;
-            child.material.opacity = 0.5;
-          }
+        const w = App.state.wires.find(w => {
+          const [f, t] = App.wireLabels(w);
+          return (f === a.from && t === a.to) || (f === a.to && t === a.from);
         });
-        _pendingGhosts.push({ _isRemovalHighlight: true, wire: wire });
+        if (w) tint(w.group);
       }
     }
-    // delete_all: no ghost mesh — flagged in the pending bar text instead
-
-    if (ghost) { App.scene.add(ghost); _pendingGhosts.push(ghost); }
+    ghosts.forEach(g => App.scene.add(g));
+    pending = { actions, ghosts, tinted };
+    pending.signature = JSON.stringify(App.exportBoard());
+    App.previewing = true;
+    App.refreshCounts();
+    const n = r.resolved.length;
+    $('surge-pending-count').textContent = `${n} change${n === 1 ? '' : 's'} ready`;
+    $('surge-pending-bar').style.display = 'flex';
+    return true;
   }
 
-  // Show the pending bar
-  document.getElementById('surge-pending-bar').style.display = 'flex';
-}
-
-function _buildWireGhost(fromStr, toStr, colorName, pendingPins) {
-  const bb  = App.state.breadboard;
-  const hex = colorName ? (_COLOR_MAP[colorName.toLowerCase()] || 0xef4444) : 0xef4444;
-
-  function resolvePos(str) {
-    // Check pending pins first (for not-yet-placed components e.g. battery preview)
-    if (pendingPins && pendingPins[str]) return pendingPins[str].clone();
-    // Try breadboard hole
-    const [col, row] = parseHole(str);
-    if (col !== null) {
-      const h = bb.getHole(col, row);
-      if (h) return new THREE.Vector3(h.x, 0.06, h.z);
-    }
-    // Try existing placed component pin
-    const pinM = str.match(/^(\w+)_(\d+)_pin(\d+)$/i);
-    if (pinM) {
-      const comps = App.state.components.filter(c => c.type === pinM[1]);
-      const comp  = comps[parseInt(pinM[2])];
-      const pm    = comp?.pinMeshes[parseInt(pinM[3])];
-      if (pm) return pm.userData.world.clone();
-    }
-    return null;
+  function clearPreview() {
+    if (!pending) return;
+    pending.ghosts.forEach(g => { App.scene.remove(g); App.disposeGroup(g); });
+    pending.tinted.forEach(g => App.setHighlight(g, false));
+    pending = null;
+    App.previewing = false;
+    App.refreshCounts();
+    $('surge-pending-bar').style.display = 'none';
   }
 
-  const start = resolvePos(fromStr);
-  const end   = resolvePos(toStr);
-  if (!start || !end) return null;
-
-  const g    = new THREE.Group();
-  const mat  = new THREE.MeshLambertMaterial({ color: hex, transparent: true, opacity: 0.42, depthWrite: false });
-  const dist = start.distanceTo(end);
-  const mid  = new THREE.Vector3(
-    (start.x + end.x) / 2,
-    Math.max(start.y, end.y) + dist * 0.22 + 0.38,
-    (start.z + end.z) / 2
-  );
-  const curve = new THREE.CatmullRomCurve3([start, mid, end]);
-  g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 26, 0.043, 7, false), mat));
-  return g;
-}
-
-function surgeAcceptChanges() {
-  if (!_pendingActions) return;
-  if (_pendingBoardSignature !== JSON.stringify(App.exportState())) {
-    surgeDeclineChanges();
-    surgeAddMsg('The board changed. Ask for an updated proposal.', 'system');
-    return;
+  function accept() {
+    if (!pending) return;
+    if (pending.signature !== JSON.stringify(App.exportBoard())) { decline(); addMsg('The board changed. Ask for an updated proposal.', 'system'); return; }
+    const actions = pending.actions;
+    clearPreview();
+    const r = execActions(actions);
+    addMsg(`Applied ${r.done} change${r.done !== 1 ? 's' : ''}.`, 'system');
   }
-  const actions = _pendingActions;
-  _surgeClearGhosts();
-  _pendingActions = null;
-  document.getElementById('surge-pending-bar').style.display = 'none';
 
-  const n = surgeExecActions(actions);
-  surgeAddMsg(`✓ Applied ${n} change${n !== 1 ? 's' : ''} to your circuit.`, 'system');
-}
+  function decline() {
+    if (!pending) return;
+    clearPreview();
+    addMsg('Discarded.', 'system');
+  }
 
-function surgeDeclineChanges() {
-  if (!_pendingActions) return;
-  _surgeClearGhosts();
-  _pendingActions = null;
-  document.getElementById('surge-pending-bar').style.display = 'none';
-  surgeAddMsg('Changes declined.', 'system');
-}
-
-function _surgeClearGhosts() {
-  _pendingGhosts.forEach(g => {
-    if (g._isRemovalHighlight) {
-      // Restore original materials on highlighted components/wires
-      const target = g.comp ? g.comp.group : g.wire ? g.wire.group : null;
-      if (target) {
-        target.traverse(child => {
-          if (child.isMesh && child._origMaterial) {
-            child.material = child._origMaterial;
-            delete child._origMaterial;
-          }
-        });
+  // ── Main ask ─────────────────────────────────────────────────
+  let busy = false;
+  async function ask(override) {
+    const input = $('surge-input');
+    const msg = (override !== undefined ? override : input.value).trim();
+    if (!msg || busy) return;
+    busy = true;
+    const signature = JSON.stringify(App.exportBoard());
+    $('surge-send')?.setAttribute('disabled', '');
+    clearPreview();
+    addMsg(msg, 'user');
+    input.value = '';
+    input.style.height = 'auto';
+    const typing = addTyping();
+    try {
+      const data = await askSurge(msg);
+      typing.remove();
+      if (signature !== JSON.stringify(App.exportBoard())) {
+        addMsg('The board changed while Surge was thinking. Please send the request again.', 'system');
+        return;
       }
-    } else {
-      App.scene.remove(g);
+      const v = data.actions.length ? (data.verification || localVerify(data.actions)) : null;
+      // The reply ends with the verdict; the card under it says it once.
+      const said = v && v.summary ? (data.reply || '').replace(v.summary, '').trim() : data.reply;
+      addMsg(said || 'Here is the build.', 'ai');
+      history.push({ role: 'user', text: msg }, { role: 'model', text: data.reply || '' });
+      if (data.actions.length) {
+        if (v) addVerification(v, data.notes);
+        preview(data.actions);
+      }
+    } catch (err) {
+      typing.remove();
+      addMsg(err.message, 'system');
+    } finally {
+      busy = false;
+      $('surge-send')?.removeAttribute('disabled');
     }
+  }
+
+  function clearChat() {
+    clearPreview();
+    history.length = 0;
+    $('surge-messages').querySelectorAll('.chat-msg, .verify').forEach(el => el.remove());
+    $('surge-welcome')?.classList.remove('hidden');
+  }
+
+  window.App.onReady( () => {
+    const inp = $('surge-input');
+    if (!inp) return;
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
+    });
+    inp.addEventListener('input', () => {
+      inp.style.height = 'auto';
+      inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
+    });
+    $('surge-send')?.addEventListener('click', () => ask());
+    $('surge-clear')?.addEventListener('click', clearChat);
   });
-  _pendingGhosts = [];
-}
 
-// ── Main ask ─────────────────────────────────────────────────────
-
-async function surgeAsk(overrideMsg) {
-  if (surgeRequestInProgress) return;
-  const input = document.getElementById('surge-input');
-  const msg   = (overrideMsg !== undefined) ? overrideMsg : input.value.trim();
-  if (!msg || msg.length > 6000) return;
-  surgeRequestInProgress = true;
-  const boardSignature = JSON.stringify(App.exportState());
-
-  // If there's an open preview, dismiss it before sending a new message
-  if (_pendingActions) {
-    _surgeClearGhosts();
-    _pendingActions = null;
-    document.getElementById('surge-pending-bar').style.display = 'none';
-  }
-
-  surgeAddMsg(msg, 'user');
-  input.value = '';
-  input.style.height = 'auto';
-
-  const typingEl = surgeTyping();
-
-  try {
-    const markdown = (typeof App !== 'undefined' && App.exportMarkdown)
-      ? App.exportMarkdown() : '_Board not ready._';
-
-    const data = await askGeminiClient(markdown, msg, chatHistory.slice(-20));
-    typingEl.remove();
-    if (boardSignature !== JSON.stringify(App.exportState())) {
-      surgeAddMsg('The board changed while Surge was thinking. Send the request again for the updated circuit.', 'system');
-      return;
-    }
-    surgeAddMsg(data.reply || '(no reply)', 'ai');
-
-    // Store turn pair for conversation memory
-    chatHistory.push({ role: 'user', text: msg });
-    chatHistory.push({ role: 'model', text: data.reply || '' });
-
-    if (data.actions && data.actions.length) {
-      surgePreviewActions(data.actions);
-    }
-
-  } catch (err) {
-    typingEl.remove();
-    surgeAddMsg('⚠️ ' + err.message, 'system');
-  } finally {
-    surgeRequestInProgress = false;
-  }
-
-}
-
-function surgeQuick(msg) { surgeAsk(msg); }
-
-(() => {
-  const inp = document.getElementById('surge-input');
-  if (!inp) return;
-  inp.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); surgeAsk(); }
-  });
-  // Auto-resize textarea as user types
-  function autoResize() {
-    inp.style.height = 'auto';
-    inp.style.height = Math.min(inp.scrollHeight, 100) + 'px';
-  }
-  inp.addEventListener('input', autoResize);
+  // Inline handlers in index.html, and the audit harness, call these.
+  window.surgeAsk            = ask;
+  window.surgeQuick          = msg => ask(msg);
+  window.surgeAcceptChanges  = accept;
+  window.surgeDeclineChanges = decline;
+  window.surgeExecActions    = actions => execActions(actions).done;
+  window.surgePreviewActions = preview;
 })();

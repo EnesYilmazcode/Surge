@@ -7,12 +7,10 @@
 //  closes at every node, which is the property the old path-based
 //  engine violated.
 //
-//  Run: npm test
+//  Run: node circuit3d/tests/mna.test.js
 // ─────────────────────────────────────────────────────────────
 
-const solverContext = { module: { exports: {} } };
-require('node:vm').runInNewContext(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'editor', 'solver.js'), 'utf8'), solverContext);
-const MNA = solverContext.module.exports;
+const MNA = require('./helpers/workbench.cjs')('solver');
 // Every node carries a deliberate GMIN = 1e-12 S shunt to ground so a
 // floating board cannot make the matrix singular. SPICE does the same.
 // At 9V that leaks 9e-12 A, so no current assertion can be tighter than

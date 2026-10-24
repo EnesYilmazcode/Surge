@@ -24,6 +24,21 @@
         if (!Number.isFinite(c.resistance) || c.resistance <= 0 || c.resistance > 1e9) throw new Error('Invalid resistance.');
         result.resistance = c.resistance;
       }
+      if (c.values !== undefined) {
+        if (!c.values || typeof c.values !== 'object' || Array.isArray(c.values)) throw new Error('Invalid component values.');
+        result.values = {};
+        for (const key of ['resistance', 'voltage', 'forwardVoltage', 'thresholdCurrent', 'maxCurrent', 'internalResistance', 'frequency', 'ideality', 'ratedCurrent']) {
+          if (c.values[key] === undefined) continue;
+          if (!Number.isFinite(c.values[key]) || c.values[key] <= 0 || c.values[key] > 1e9) throw new Error('Invalid electrical value.');
+          result.values[key] = c.values[key];
+        }
+        if (c.values.color !== undefined) {
+          if (!['red','yellow','green','blue','white'].includes(c.values.color)) throw new Error('Invalid LED color.');
+          result.values.color = c.values.color;
+        }
+      } else if (c.resistance !== undefined) {
+        result.values = { resistance: c.resistance };
+      }
       return result;
     });
     const wires = data.wires.map(w => {

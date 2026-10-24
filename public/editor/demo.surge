@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "LED workbench",
+  "components": [
+    { "type": "battery", "holeRefs": null, "position": { "x": 13.2, "z": 0 }, "values": { "voltage": 9 } },
+    { "type": "resistor", "holeRefs": [{ "col": 4, "row": "a" }, { "col": 8, "row": "a" }], "values": { "resistance": 470 } },
+    { "type": "led", "holeRefs": [{ "col": 10, "row": "b" }, { "col": 8, "row": "b" }], "values": { "color": "red", "forwardVoltage": 2, "thresholdCurrent": 0.001, "maxCurrent": 0.02 } }
+  ],
+  "wires": [
+    { "startCompIdx": 0, "startPinIdx": 0, "endHole": { "col": 1, "row": "tp" }, "color": 15746884 },
+    { "startCompIdx": 0, "startPinIdx": 1, "endHole": { "col": 1, "row": "tn" }, "color": 1118481 },
+    { "startHole": { "col": 4, "row": "tp" }, "endHole": { "col": 4, "row": "b" }, "color": 15746884 },
+    { "startHole": { "col": 10, "row": "c" }, "endHole": { "col": 10, "row": "tn" }, "color": 1118481 }
+  ]
+}

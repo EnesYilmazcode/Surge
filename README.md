@@ -15,12 +15,15 @@ For AI chat, copy `.env.example` to `.env.local`, set `GEMINI_API_KEY`, and rest
 
 ## Editor
 
-- Warm light workbench, compact component library, and right-side Surge chat
+- Light editor shell, dark anti-static workbench, and right-side Surge chat
+- Physically based molded plastic, reflective metal leads, clear LED lenses, studio reflections, and contact shadows
+- Rendered component thumbnails, property inspector, resistor presets, and selectable LED colors
 - Full-size 50-column breadboard with 700 sockets, row labels, rail markings, and a center channel
 - Resistors, LEDs, 9 V batteries, active buzzers, and push buttons with detailed 3D models
 - Socket-aware placement previews, rotation, selection, and deletion
 - Curved jumper wires between sockets and component pins, with six wire colors
 - Orbit, pan, zoom, reset view, and clear board controls
+- Undo/redo history and smooth camera reset
 - Modified nodal analysis with nonlinear LED models, battery internal resistance, and button switches
 - Simulation results, LED illumination, buzzer audio, open-circuit and overcurrent reporting
 - Local autosave, saved-project browser, file previews, and validated `.surge` downloads/imports
@@ -36,6 +39,8 @@ The additional studio is available at `/studio.html`; its browser-saved designs 
 
 - `src/workbench.ts` initializes the local renderer and loads editor modules in dependency order.
 - `public/editor/scene.js`, `board.js`, and `parts.js` implement the workbench and geometry.
+- `public/editor/board-model.js` resolves shared socket connectivity and prevents overlapping leads.
+- `public/editor/inspector.js` edits component values; `thumbs.js` renders library thumbnails.
 - `public/editor/input.js` and `editor.js` handle placement, wiring, keyboard controls, and persistence.
 - `public/editor/solver.js` solves DC node voltages and nonlinear diode currents.
 - `public/editor/simulation.js` converts breadboard connectivity into a netlist and drives visual/audio feedback.

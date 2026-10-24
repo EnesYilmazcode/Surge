@@ -49,11 +49,17 @@
   App.BUTTON_SPAN   = 3;
 
   const state = App.state;
-  App.componentId = function(comp) { return comp.type + '_' + state.components.filter(c => c.type === comp.type).indexOf(comp); };
 
   // ── Render Loop ─────────────────────────────────────────────
 
-  const _defaultCamPos = { x: 0, y: 22, z: 30 };
+  // Narrow screens need the camera further back to fit the board's width.
+  const _aspect = () => Math.max(0.45, App.camera.aspect || 1.6);
+  const _defaultCamPos = {};
+  function _fitDefault() {
+    const k = Math.max(1, 1.55 / _aspect());
+    Object.assign(_defaultCamPos, { x: 0, y: 18 * k, z: 24 * k });
+  }
+  _fitDefault();
   const _defaultCamTgt = { x: 0, y: 0, z: 0 };
   const _camThreshold = 0.5;
 
@@ -67,14 +73,40 @@
            Math.abs(t.z - _defaultCamTgt.z) < _camThreshold;
   }
 
+  // Per-frame callbacks (buzzer shake, hover pulse). Each gets seconds.
+  const _tickers = new Set();
+  App.addTicker    = fn => _tickers.add(fn);
+  App.removeTicker = fn => _tickers.delete(fn);
+
   function animate() {
     requestAnimationFrame(animate);
+    const t = performance.now() / 1000;
+    _tickers.forEach(fn => { try { fn(t); } catch (e) { console.warn(e); } });
     App.controls.update();
     App.renderer.render(App.scene, App.camera);
 
     const resetBtn = document.getElementById('reset-cam-btn');
     if (resetBtn) resetBtn.style.display = _isCamDefault() ? 'none' : 'flex';
   }
+
+  // Glide the camera back to the default view.
+  App.resetView = function () {
+    _fitDefault();
+    const cam = App.camera, ctl = App.controls;
+    const p0 = cam.position.clone(), t0 = ctl.target.clone();
+    const p1 = new THREE.Vector3(_defaultCamPos.x, _defaultCamPos.y, _defaultCamPos.z);
+    const t1 = new THREE.Vector3(_defaultCamTgt.x, _defaultCamTgt.y, _defaultCamTgt.z);
+    const start = performance.now(), dur = 650;
+    const step = now => {
+      const k = Math.min(1, (now - start) / dur);
+      const e = 1 - Math.pow(1 - k, 3);
+      cam.position.lerpVectors(p0, p1, e);
+      ctl.target.lerpVectors(t0, t1, e);
+      ctl.update();
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  };
 
   // ── Sidebar ──────────────────────────────────────────────────
 
@@ -109,9 +141,9 @@
   // ── Mode ─────────────────────────────────────────────────────
 
   const MODE_HINTS = {
-    select: 'Click a component or wire to select it · DEL to delete',
-    place:  'Hover over the board to preview · Click to place · R to rotate · ESC to cancel',
-    wire:   'Click any hole or gold pin to start a wire · click again to complete',
+    select: '',
+    place:  'Click a hole to place it · R rotates',
+    wire:   'Click two holes to wire them',
   };
 
   App.setMode = function (m) {
@@ -150,11 +182,65 @@
   // Both placeResistor and placeLED now receive hole objects directly
   // (already resolved by interaction.js hover logic).
 
-  App.placeResistor = function (holeA, holeB) {
-    const { group, pins } = App.buildResistor(holeA, holeB);
+  // ── Occupancy: one lead or wire end per hole ─────────────────
+  App.occupiedKeys = function () {
+    const set = new Set();
+    state.components.forEach(c => (c.holeRefs || []).forEach(h => set.add(h.row + ':' + h.col)));
+    state.wires.forEach(w => {
+      if (w.startHole) set.add(w.startHole.row + ':' + w.startHole.col);
+      if (w.endHole)   set.add(w.endHole.row + ':' + w.endHole.col);
+    });
+    return set;
+  };
+
+  // Would a part at these holes intersect a part already on the board?
+  // Compares footprints on the board plane, leads excluded, shrunk a hair
+  // so parts in neighbouring rows (which do fit on a real board) pass.
+  const _probe = new THREE.Box3(), _other = new THREE.Box3();
+  function bodyBox(group, box) {
+    box.makeEmpty();
+    group.updateMatrixWorld(true);
+    group.traverse(o => {
+      if (!o.isMesh || !o.geometry) return;
+      if (o.geometry.type === 'TubeGeometry') return;           // leads and wires
+      o.geometry.computeBoundingBox();
+      box.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld));
+    });
+    return box.expandByScalar(-0.03);
+  }
+  App.overlapsPart = function (type, holeA, holeB) {
+    const build = { resistor: App.buildResistor, led: App.buildLED, buzzer: App.buildBuzzer, button: App.buildButton }[type];
+    if (!build) return false;
+    const probe = build(holeA, holeB).group;
+    bodyBox(probe, _probe);
+    App.disposeGroup(probe);
+    return state.components.some(c => {
+      if (!c.holeRefs) return false;
+      bodyBox(c.group, _other);
+      return _probe.max.x > _other.min.x && _probe.min.x < _other.max.x &&
+             _probe.max.z > _other.min.z && _probe.min.z < _other.max.z;
+    });
+  };
+
+  App.isHoleFree = function (hole) {
+    return !!hole && !App.occupiedKeys().has(hole.row + ':' + hole.col);
+  };
+
+  // Nearest free hole on the same strip (same column half, or same rail).
+  App.freeHoleOnStrip = function (hole) {
+    if (!hole) return null;
+    const taken = App.occupiedKeys();
+    const ref = window.BoardModel.freeHoleNear({ col: hole.col, row: hole.row }, taken);
+    return ref ? state.breadboard.getHole(ref.col, ref.row) : null;
+  };
+
+  App.placeResistor = function (holeA, holeB, values) {
+    pushHistory();
+    const vals = App.componentValues('resistor', values);
+    const { group, pins } = App.buildResistor(holeA, holeB, vals.resistance);
     App.scene.add(group);
     const record = {
-      type: 'resistor', group, pins, pinMeshes: [],
+      type: 'resistor', group, pins, pinMeshes: [], values: vals,
       holeRefs: [{ col: holeA.col, row: holeA.row },
                  { col: holeB.col, row: holeB.row }],
     };
@@ -163,11 +249,13 @@
     refreshCounts();
   };
 
-  App.placeLED = function (holeA, holeB) {
-    const { group, pins } = App.buildLED(holeA, holeB);
+  App.placeLED = function (holeA, holeB, values) {
+    pushHistory();
+    const vals = App.componentValues('led', values);
+    const { group, pins } = App.buildLED(holeA, holeB, vals.color);
     App.scene.add(group);
     const record = {
-      type: 'led', group, pins, pinMeshes: [],
+      type: 'led', group, pins, pinMeshes: [], values: vals,
       // pin 0 = cathode (−), pin 1 = anode (+)
       holeRefs: [{ col: holeA.col, row: holeA.row },   // cathode
                  { col: holeB.col, row: holeB.row }],   // anode
@@ -177,11 +265,13 @@
     refreshCounts();
   };
 
-  App.placeBuzzer = function (holeA, holeB) {
+  App.placeBuzzer = function (holeA, holeB, values) {
+    pushHistory();
     const { group, pins } = App.buildBuzzer(holeA, holeB);
     App.scene.add(group);
     const record = {
       type: 'buzzer', group, pins, pinMeshes: [],
+      values: App.componentValues('buzzer', values),
       holeRefs: [{ col: holeA.col, row: holeA.row },
                  { col: holeB.col, row: holeB.row }],
     };
@@ -190,11 +280,13 @@
     refreshCounts();
   };
 
-  App.placeButton = function (holeA, holeB) {
+  App.placeButton = function (holeA, holeB, values) {
+    pushHistory();
     const { group, pins, capMesh } = App.buildButton(holeA, holeB);
     App.scene.add(group);
     const record = {
       type: 'button', group, pins, pinMeshes: [],
+      values: App.componentValues('button', values),
       holeRefs: [{ col: holeA.col, row: holeA.row },
                  { col: holeB.col, row: holeB.row }],
       pressed: false,
@@ -221,9 +313,9 @@
       }
 
       const targetY   = comp.pressed ? cap.userData.capPressY : cap.userData.capRestY;
-      const targetCol = comp.pressed ? 0x44cc44 : 0xe5e5e5;
-      const targetEmi = comp.pressed ? 0x115511 : 0x000000;
-      const targetEmiI = comp.pressed ? 0.6 : 0;
+      const targetCol = comp.pressed ? 0x22c55e : (cap.userData.restColor ?? 0x2b2e35);
+      const targetEmi = comp.pressed ? 0x15803d : 0x000000;
+      const targetEmiI = comp.pressed ? 0.8 : 0;
 
       // Kill any in-progress animation on this cap
       if (cap.userData._animId) cancelAnimationFrame(cap.userData._animId);
@@ -235,10 +327,10 @@
       const duration  = 80; // ms — snappy but visible
       const t0        = performance.now();
 
-      const colA = new THREE.Color(startCol);
-      const colB = new THREE.Color(targetCol);
-      const emiA = new THREE.Color(startEmi);
-      const emiB = new THREE.Color(targetEmi);
+      const colA = new THREE.Color().setHex(startCol);
+      const colB = App.lin(targetCol);
+      const emiA = new THREE.Color().setHex(startEmi);
+      const emiB = App.lin(targetEmi);
 
       function tick(now) {
         const p = Math.min((now - t0) / duration, 1);
@@ -262,13 +354,22 @@
 
   };
 
-  App.placeBattery = function (wx, wz) {
-    const margin = state.breadboard.BOARD_W / 2 + 2.5;
+  // Where the AI puts its n-th battery: beside the left end of the board,
+  // next to column 1 where its recipe lands the rail wires.
+  App.batterySlot = function (n) {
+    const x = -(state.breadboard.BOARD_W / 2 + 2.6 + Math.floor(n / 2) * 3.4);
+    return { x, z: (n % 2 === 0 ? -1.4 : 1.6) };
+  };
+
+  App.placeBattery = function (wx, wz, values) {
+    pushHistory();
+    const margin = state.breadboard.BOARD_W / 2 + 2.2;
     const placedX = wx >= 0 ? Math.max(wx, margin) : Math.min(wx, -margin);
     const { group, pins } = App.buildBattery(placedX, wz);
     App.scene.add(group);
     const record = {
       type: 'battery', group, pins, pinMeshes: [],
+      values: App.componentValues('battery', values),
       holeRefs: null, // not on breadboard
     };
     addPinMarkers(record);
@@ -278,14 +379,16 @@
 
   // ── Pin Markers ──────────────────────────────────────────────
 
-  const PIN_GEO = new THREE.SphereGeometry(0.10, 11, 11);
-  const PIN_MAT = () => new THREE.MeshLambertMaterial({
-    color: 0xf5c518, emissive: 0x3a2800, emissiveIntensity: 0.4,
-  });
+  // Board parts are wired through the holes beside their leads, so only
+  // off-board pins (the battery terminals) need something to click. The
+  // target is invisible; wire mode shows a ring on it.
+  const PIN_GEO = new THREE.SphereGeometry(0.34, 16, 12);
+  const PIN_MAT = new THREE.MeshBasicMaterial({ visible: false });
 
   function addPinMarkers(record) {
+    if (record.holeRefs) return;
     record.pins.forEach((worldPos, idx) => {
-      const pm = new THREE.Mesh(PIN_GEO, PIN_MAT());
+      const pm = new THREE.Mesh(PIN_GEO, PIN_MAT);
       pm.position.copy(worldPos);
       pm.userData.ownerComp   = record;
       pm.userData.pinIndex    = idx;
@@ -301,6 +404,7 @@
 
   App.finishWire = function (endPin) {
     if (!state.wireStart) return;
+    pushHistory();
 
     const startWorld  = state.wireStart.world;
     const endWorld    = endPin.world;
@@ -313,13 +417,12 @@
     const sPm = state.wireStart.pinMesh;
     const ePm = endPin.pinMesh || null;
 
-    // Build the wire visual (coloured arc with leg stubs into holes)
-    const wireGroup = buildWireGroup(startWorld, endWorld, state.wireColor);
+    const wireGroup = App.buildWire(startWorld, endWorld, state.wireColor);
+    wireGroup.userData.color = state.wireColor;
     App.scene.add(wireGroup);
 
-    // Reset start-pin highlight
     const sp = state.wireStart.pinMesh;
-    if (sp) { sp.userData.isWireStart = false; sp.material.emissiveIntensity = 0.4; }
+    if (sp) sp.userData.isWireStart = false;
 
     state.wires.push({
       group:        wireGroup,
@@ -338,84 +441,85 @@
   };
 
   App.cancelWire = function () {
-    if (state.wireStart?.pinMesh) {
-      state.wireStart.pinMesh.userData.isWireStart = false;
-      state.wireStart.pinMesh.material.emissiveIntensity = 0.4;
-    }
+    if (state.wireStart?.pinMesh) state.wireStart.pinMesh.userData.isWireStart = false;
     state.wireStart = null;
     if (state.tempWire) { App.scene.remove(state.tempWire); state.tempWire = null; }
   };
 
-  // Wire visual: colored arc + two leg stubs going into holes
-  function buildWireGroup(start, end, hexColor) {
-    const g   = new THREE.Group();
-    const mat = new THREE.MeshLambertMaterial({ color: hexColor });
-    const LEG_H = 0.28;
-
-    // Leg stubs only for board-level pins (y ≈ 0); skip for elevated terminals
-    const legGeo = new THREE.CylinderGeometry(0.04, 0.04, LEG_H, 7);
-    [start, end].forEach(p => {
-      if (p.y > 0.15) return;   // battery/elevated pins — no leg into the board
-      const leg = new THREE.Mesh(legGeo, mat.clone());
-      leg.position.set(p.x, -LEG_H / 2 + 0.06, p.z);
-      g.add(leg);
-    });
-
-    // Use actual pin height for arc endpoints (fall back to 0.06 for board holes)
-    const startY = start.y > 0.15 ? start.y : 0.06;
-    const endY   = end.y   > 0.15 ? end.y   : 0.06;
-
-    // Arc body — mid-point rises above the higher of the two endpoints
-    const dist = start.distanceTo(end);
-    const mid  = new THREE.Vector3(
-      (start.x + end.x) / 2,
-      Math.max(startY, endY) + dist * 0.22 + 0.38,
-      (start.z + end.z) / 2
-    );
-    const curve   = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(start.x, startY, start.z),
-      mid,
-      new THREE.Vector3(end.x,   endY,   end.z),
-    ]);
-    const tubeGeo = new THREE.TubeGeometry(curve, 26, 0.043, 7, false);
-    const tube    = new THREE.Mesh(tubeGeo, mat.clone());
-    tube.castShadow = true;
-    g.add(tube);
-
-    return g;
-  }
-
   // ── Selection ────────────────────────────────────────────────
-
-  const origEmissive = new Map();
 
   App.selectItem = function (item, kind) {
     App.deselect();
     state.selected = { item, kind };
-
-    const root = kind === 'component' ? item.group : item.group;
-    if (!root) return;
-    root.traverse(obj => {
-      if (!obj.isMesh) return;
-      origEmissive.set(obj, { hex: obj.material.emissive.getHex(), int: obj.material.emissiveIntensity });
-      obj.material = obj.material.clone();
-      obj.material.emissive.setHex(0x1a5a99);
-      obj.material.emissiveIntensity = 0.65;
-    });
+    if (item.group) App.setHighlight(item.group, true);
+    App.showInspector?.(item, kind);
   };
 
   App.deselect = function () {
     if (!state.selected) return;
-    const { item, kind } = state.selected;
-    const root = item.group;
-    if (root) root.traverse(obj => {
-      if (!obj.isMesh || !origEmissive.has(obj)) return;
-      const { hex, int } = origEmissive.get(obj);
-      obj.material.emissive.setHex(hex);
-      obj.material.emissiveIntensity = int;
-    });
-    origEmissive.clear();
+    const { item } = state.selected;
+    if (item.group) App.setHighlight(item.group, false);
     state.selected = null;
+    App.hideInspector?.();
+  };
+
+  // Give a placed part new values (resistance, LED colour). The model is
+  // rebuilt in place, because a resistor's colour bands are geometry.
+  App.setComponentValues = function (comp, patch) {
+    if (!comp || !comp.holeRefs) return;
+    pushHistory();
+    const wasSelected = state.selected?.item === comp;
+    if (wasSelected) App.setHighlight(comp.group, false);
+    comp.values = App.componentValues(comp.type, Object.assign({}, comp.values, patch,
+      comp.type === 'led' && patch.color ? { forwardVoltage: undefined } : {}));
+    if (comp.type === 'led' && comp.values.forwardVoltage == null) comp.values = App.componentValues('led', { color: comp.values.color });
+    const hA = state.breadboard.getHole(comp.holeRefs[0].col, comp.holeRefs[0].row);
+    const hB = state.breadboard.getHole(comp.holeRefs[1].col, comp.holeRefs[1].row);
+    const built = comp.type === 'resistor' ? App.buildResistor(hA, hB, comp.values.resistance)
+                : comp.type === 'led'      ? App.buildLED(hA, hB, comp.values.color) : null;
+    if (!built) return;
+    App.scene.remove(comp.group);
+    App.disposeGroup(comp.group);
+    comp.group = built.group;
+    App.scene.add(comp.group);
+    if (wasSelected) App.setHighlight(comp.group, true);
+    refreshCounts();
+    if (App.simRunning) App.runSimulation();
+  };
+
+  // Run many board edits as one undo step (an AI build is one change).
+  App.batch = function (fn) {
+    pushHistory();
+    _historyMuted = true;
+    try { fn(); } finally { _historyMuted = false; }
+    refreshCounts();
+  };
+
+  // Remove a part, its off-board pin targets, and wires tied to its pins.
+  App.removeComponent = function (comp) {
+    if (!comp) return false;
+    if (state.selected?.item === comp) App.deselect();
+    (comp.pinMeshes || []).forEach(pm => App.scene.remove(pm));
+    comp.group.userData.setActive?.(false);
+    App.scene.remove(comp.group);
+    App.disposeGroup(comp.group);
+    state.components = state.components.filter(c => c !== comp);
+    state.wires = state.wires.filter(w => {
+      if (w.startComp !== comp && w.endComp !== comp) return true;
+      App.scene.remove(w.group);
+      App.disposeGroup(w.group);
+      return false;
+    });
+    return true;
+  };
+
+  App.removeWire = function (wire) {
+    if (!wire) return false;
+    if (state.selected?.item === wire) App.deselect();
+    App.scene.remove(wire.group);
+    App.disposeGroup(wire.group);
+    state.wires = state.wires.filter(w => w !== wire);
+    return true;
   };
 
   // ── Delete ───────────────────────────────────────────────────
@@ -423,20 +527,11 @@
   App.deleteSelected = function () {
     if (!state.selected) return;
     const { item, kind } = state.selected;
+    pushHistory();
     App.deselect();
 
-    if (kind === 'component') {
-      state.wires = state.wires.filter(w => {
-        if (w.startComp === item || w.endComp === item) { App.scene.remove(w.group); return false; }
-        return true;
-      });
-      (item.pinMeshes || []).forEach(pm => App.scene.remove(pm));
-      App.scene.remove(item.group);
-      state.components = state.components.filter(c => c !== item);
-    } else if (kind === 'wire') {
-      App.scene.remove(item.group);
-      state.wires = state.wires.filter(w => w !== item);
-    }
+    if (kind === 'component') App.removeComponent(item);
+    else if (kind === 'wire') App.removeWire(item);
     refreshCounts();
 
     // Re-evaluate simulation with the remaining circuit
@@ -485,8 +580,8 @@
       thumbnail: captureIsometricThumb(),
       components: state.components.map((c, i) => ({
         type:     c.type,
-        id:       App.componentId(c),
-        resistance: c.resistance,
+        id:       c.type + '_' + i,
+        values:   c.values,
         holeRefs: c.holeRefs,          // null for battery
         position: c.group
           ? { x: +c.group.position.x.toFixed(3), z: +c.group.position.z.toFixed(3) }
@@ -499,7 +594,7 @@
         startPinIdx:  w.startPinIdx,
         endCompIdx:   w.endComp   ? state.components.indexOf(w.endComp)   : -1,
         endPinIdx:    w.endPinIdx,
-        color:        w.group?.children?.[0]?.material?.color?.getHex?.() ?? state.wireColor,
+        color:        w.group?.userData?.color ?? state.wireColor,
       })),
     };
 
@@ -521,6 +616,28 @@
   App.loadCircuitData = function (data) {
     data = WorkbenchFiles.validate(data);
     App.clearAll();
+    restoreBoard(data);
+
+    // Sync circuit name + ID
+    if (data.name) {
+      state.circuitName = data.name;
+      const nf = document.getElementById('circuit-name-field');
+      if (nf) nf.textContent = data.name;
+    }
+    if (data.id) state.circuitId = data.id;
+
+    App.setHint(`Opened "${data.name || 'circuit'}"`, 2000);
+  };
+
+  // Replaying a board re-runs the place/wire helpers, which would each record
+  // an undo entry of their own. The caller records one entry for the replay.
+  function restoreBoard(data) {
+    _historyMuted = true;
+    try { rebuildBoard(data); } finally { _historyMuted = false; }
+  }
+
+  // Rebuild components and wires from serialized data onto a cleared board.
+  function rebuildBoard(data) {
     const bb = state.breadboard;
 
     // Rebuild components
@@ -529,25 +646,23 @@
       if (c.type === 'resistor' && c.holeRefs?.length === 2) {
         const hA = bb.getHole(c.holeRefs[0].col, c.holeRefs[0].row);
         const hB = bb.getHole(c.holeRefs[1].col, c.holeRefs[1].row);
-        if (hA && hB) App.placeResistor(hA, hB);
+        if (hA && hB) App.placeResistor(hA, hB, c.values);
       } else if (c.type === 'led' && c.holeRefs?.length === 2) {
         const hA = bb.getHole(c.holeRefs[0].col, c.holeRefs[0].row);
         const hB = bb.getHole(c.holeRefs[1].col, c.holeRefs[1].row);
-        if (hA && hB) App.placeLED(hA, hB);
+        if (hA && hB) App.placeLED(hA, hB, c.values);
       } else if (c.type === 'buzzer' && c.holeRefs?.length === 2) {
         const hA = bb.getHole(c.holeRefs[0].col, c.holeRefs[0].row);
         const hB = bb.getHole(c.holeRefs[1].col, c.holeRefs[1].row);
-        if (hA && hB) App.placeBuzzer(hA, hB);
+        if (hA && hB) App.placeBuzzer(hA, hB, c.values);
       } else if (c.type === 'button' && c.holeRefs?.length === 2) {
         const hA = bb.getHole(c.holeRefs[0].col, c.holeRefs[0].row);
         const hB = bb.getHole(c.holeRefs[1].col, c.holeRefs[1].row);
-        if (hA && hB) App.placeButton(hA, hB);
+        if (hA && hB) App.placeButton(hA, hB, c.values);
       } else if (c.type === 'battery' && c.position) {
-        App.placeBattery(c.position.x, c.position.z);
+        App.placeBattery(c.position.x, c.position.z, c.values);
       }
-      const placed = state.components[state.components.length - 1];
-      if (c.resistance !== undefined && placed) placed.resistance = c.resistance;
-      rebuilt.push(placed);
+      rebuilt.push(state.components[state.components.length - 1]);
     }
 
     // Rebuild wires
@@ -582,17 +697,7 @@
       }
     }
     state.wireColor = savedColor;
-
-    // Sync circuit name + ID
-    if (data.name) {
-      state.circuitName = data.name;
-      const nf = document.getElementById('circuit-name-field');
-      if (nf) nf.textContent = data.name;
-    }
-    if (data.id) state.circuitId = data.id;
-
-    App.setHint(`Loaded "${data.name || 'circuit'}" — ${data.components?.length ?? 0} components`, 3000);
-  };
+  }
 
   App.loadCircuit = function () {
     const inp = document.createElement('input');
@@ -601,11 +706,10 @@
     inp.onchange = async () => {
       const file = inp.files[0];
       if (!file) return;
-      if (file.size > 3 * 1024 * 1024) { App.setHint('Circuit file is too large.', 3000); return; }
       const text = await file.text();
       let data;
       try { data = WorkbenchFiles.validate(JSON.parse(text)); }
-      catch { App.setHint('⚠️ Invalid file', 2500); return; }
+      catch { App.setHint('Not a .surge file', 2500); return; }
       _showLoadPreview(data);
     };
     inp.click();
@@ -643,137 +747,142 @@
     modal.style.display = 'flex';
   }
 
+  // ── Ids and the plain-data board ─────────────────────────────
+  //  Ids count per type in placement order (led_0, led_1, battery_0),
+  //  the same rule board-model.js and the server use.
+  App.componentIds = function () {
+    const seen = {};
+    return state.components.map(c => {
+      const k = seen[c.type] || 0;
+      seen[c.type] = k + 1;
+      return c.type + '_' + k;
+    });
+  };
+
+  const COLOR_NAMES = { 0xef4444: 'red', 0xfbbf24: 'yellow', 0x22c55e: 'green', 0x3b82f6: 'blue',
+                        0x111111: 'black', 0x000000: 'black', 0xffffff: 'white' };
+
+  App.wireLabels = function (w) {
+    const ids = App.componentIds();
+    return [wireEndLabel(w, 'start', ids), wireEndLabel(w, 'end', ids)];
+  };
+
+  function wireEndLabel(w, side, ids) {
+    const hole = side === 'start' ? w.startHole : w.endHole;
+    if (hole) return App.formatHole(hole);
+    const comp = side === 'start' ? w.startComp : w.endComp;
+    const pin  = side === 'start' ? w.startPinIdx : w.endPinIdx;
+    const i = state.components.indexOf(comp);
+    return i >= 0 ? `${ids[i]}_pin${pin}` : null;
+  }
+
+  // What the AI and the server read: board-model.js export format.
+  App.exportBoard = function () {
+    const ids = App.componentIds();
+    return {
+      components: state.components.map(c => {
+        const o = { type: c.type, holes: c.holeRefs ? c.holeRefs.map(App.formatHole) : null, values: c.values };
+        if (c.type === 'button') o.pressed = !!c.pressed;
+        return o;
+      }),
+      wires: state.wires.map(w => ({
+        from:  wireEndLabel(w, 'start', ids),
+        to:    wireEndLabel(w, 'end', ids),
+        color: COLOR_NAMES[w.group?.userData?.color] || 'red',
+      })).filter(w => w.from && w.to),
+    };
+  };
+
   // ── Markdown Export (human-readable for AI) ──────────────────
-
   App.exportMarkdown = function () {
-    function holeStr(ref) {
-      if (!ref) return null;
-      return /^(tp|tn|bn|bp)$/.test(ref.row) ? ref.row + '_' + (ref.col + 1) : ref.row + (ref.col + 1);  // e.g. "e14"
-    }
-
     const comps = state.components;
     const wires = state.wires;
+    const ids   = App.componentIds();
 
-    // ── Summary line ──
     const isEmpty = !comps.length && !wires.length;
     let md = isEmpty
-      ? '**Board status: EMPTY — no components or wires placed yet.**\n\n'
+      ? '**Board status: EMPTY. No components or wires placed yet.**\n\n'
       : `**Board status: ${comps.length} component(s), ${wires.length} wire(s).**\n\n`;
 
-    // ── Component table ──
     md += '## Components\n';
     if (!comps.length) {
       md += '_None._\n';
     } else {
-      md += '| id | type | pin_A | pin_B |\n';
-      md += '|----|------|-------|-------|\n';
+      md += '| id | type | value | pin_A | pin_B |\n';
+      md += '|----|------|-------|-------|-------|\n';
       comps.forEach((c, i) => {
-        const id = App.componentId(c);
+        const id = ids[i];
         let pA = '—', pB = '—';
         if (c.holeRefs) {
-          pA = holeStr(c.holeRefs[0]);
-          pB = holeStr(c.holeRefs[1]);
+          pA = App.formatHole(c.holeRefs[0]);
+          pB = App.formatHole(c.holeRefs[1]);
           if (c.type === 'led') { pA += ' (cathode −)'; pB += ' (anode +)'; }
+          if (c.type === 'button') pB += c.pressed ? ' (pressed)' : '';
         } else {
-          // Off-board battery — show the wire reference names the AI must use
           pA = `off-board + → wire ref: ${id}_pin0`;
           pB = `off-board − → wire ref: ${id}_pin1`;
         }
-        md += `| ${id} | ${c.type} | ${pA} | ${pB} |\n`;
+        md += `| ${id} | ${c.type} | ${App.formatValue(c) || '—'} | ${pA} | ${pB} |\n`;
       });
     }
 
-    // ── Battery wiring cheat-sheet ──
-    const batteries = comps.filter(c => c.type === 'battery');
-    if (batteries.length) {
-      md += '\n## Battery wiring (how to connect in add_wire actions)\n';
-      batteries.forEach((b, i) => {
-        const id = App.componentId(b);
-        md += `- **${id}**: positive terminal → use \`"from": "${id}_pin0"\`  |  negative terminal → use \`"from": "${id}_pin1"\`\n`;
-      });
-    }
-
-    // ── Wire table ──
     md += '\n## Wires\n';
     if (!wires.length) {
       md += '_None._\n';
     } else {
       md += '| from | to | color |\n';
-      md += '|------|----|-----------|\n';
+      md += '|------|----|-------|\n';
       wires.forEach(w => {
-        const from = w.startHole
-          ? holeStr(w.startHole)
-          : (w.startComp ? `${App.componentId(w.startComp)}_pin${w.startPinIdx}` : '?');
-        const to = w.endHole
-          ? holeStr(w.endHole)
-          : (w.endComp ? `${App.componentId(w.endComp)}_pin${w.endPinIdx}` : '?');
-        const colorHex = '#' + (w.group?.children?.[0]?.material?.color?.getHex?.() ?? 0xef4444).toString(16).padStart(6, '0');
-        md += `| ${from} | ${to} | ${colorHex} |\n`;
+        const from = wireEndLabel(w, 'start', ids) || '?';
+        const to   = wireEndLabel(w, 'end', ids) || '?';
+        md += `| ${from} | ${to} | ${COLOR_NAMES[w.group?.userData?.color] || 'red'} |\n`;
       });
     }
 
-    // ── Topology ──
-    md += `
-## Breadboard topology (always true)
-- Columns 1–50. Holes a1–e1 share one node; f1–j1 share another node (center channel divides them).
-- Same rule for every column: a-e connected together, f-j connected together.
-- To connect top half (a-e) to bottom half (f-j) of the SAME column, you MUST add a wire.
-- tp = positive top rail (+9V), tn = negative top rail (GND).
-- bn = positive bottom rail (+9V), bp = negative bottom rail (GND).
-- Rails are NOT connected to body rows — you must wire from rail to a body hole explicitly.
-`;
+    md += '\n' + App.boardTopologyText() + '\n';
     return md;
   };
 
-  // ── Export State (for AI / save-load) ────────────────────────
-
+  // ── Export State (compact, for tools and tests) ──────────────
   App.exportState = function () {
-    function holeStr(ref) {
-      if (!ref) return null;
-      return /^(tp|tn|bn|bp)$/.test(ref.row) ? ref.row + '_' + (ref.col + 1) : ref.row + (ref.col + 1);   // e.g. "e14"
-    }
-
+    const ids = App.componentIds();
     const components = state.components.map((c, i) => {
-      const obj = { type: c.type.toUpperCase(), id: App.componentId(c) };
-      if (c.holeRefs) {
-        obj.holes = c.holeRefs.map(holeStr);
-      } else if (c.group) {
-        obj.position = {
-          x: +c.group.position.x.toFixed(2),
-          z: +c.group.position.z.toFixed(2),
-        };
-      }
-      if (c.type === 'led')      obj.color = 'red';
-      if (c.type === 'resistor') obj.value = String(c.resistance ?? 220) + 'Ω';
+      const obj = { type: c.type.toUpperCase(), id: ids[i] };
+      if (c.holeRefs) obj.holes = c.holeRefs.map(App.formatHole);
+      else if (c.group) obj.position = { x: +c.group.position.x.toFixed(2), z: +c.group.position.z.toFixed(2) };
+      const v = c.values || App.componentValues(c.type);
+      if (c.type === 'led') { obj.color = v.color; obj.value = v.forwardVoltage + 'V'; }
+      else if (c.type === 'resistor' || c.type === 'buzzer') obj.value = v.resistance + 'Ω';
+      else if (c.type === 'battery') obj.value = v.voltage + 'V';
       return obj;
     });
-
-    const wires = state.wires.map(w => {
-      const from = w.startHole
-        ? holeStr(w.startHole)
-        : (w.startComp ? App.componentId(w.startComp) + '_pin' + w.startPinIdx : null);
-      const to = w.endHole
-        ? holeStr(w.endHole)
-        : (w.endComp ? App.componentId(w.endComp) + '_pin' + w.endPinIdx : null);
-      return { from, to };
-    });
-
+    const wires = state.wires.map(w => ({ from: wireEndLabel(w, 'start', ids), to: wireEndLabel(w, 'end', ids) }));
     return { components, wires };
   };
 
   // ── Clear All ─────────────────────────────────────────────────
 
-  App.clearAll = function () {
+  // Tear down every scene object, leaving the circuit's name and ID alone.
+  function clearBoard() {
     App.stopSimulation?.();
     App.deselect();
     App.cancelWire();
     state.components.forEach(c => {
       (c.pinMeshes || []).forEach(pm => App.scene.remove(pm));
+      c.group.userData.setActive?.(false);
       App.scene.remove(c.group);
+      App.disposeGroup(c.group);
     });
-    state.wires.forEach(w => App.scene.remove(w.group));
+    state.wires.forEach(w => { App.scene.remove(w.group); App.disposeGroup(w.group); });
     state.components = [];
     state.wires      = [];
+  }
+
+  App.clearBoard = clearBoard;   // empties the board, keeps the circuit's name
+
+  App.clearAll = function () {
+    pushHistory();
+    clearBoard();
     // New blank circuit — get a fresh ID and name
     state.circuitId   = null;
     const newName = nextUntitledName();
@@ -781,6 +890,88 @@
     const nf = document.getElementById('circuit-name-field');
     if (nf) nf.textContent = newName;
     refreshCounts();
+  };
+
+  // ── Undo / Redo ───────────────────────────────────────────────
+  // Every board-changing command snapshots the board before it runs, and undo
+  // replays a snapshot rather than inverting the command. Replaying rebuilds
+  // the wire-to-component references from scratch, which inverting cannot do
+  // once a component record has been thrown away.
+
+  const HISTORY_LIMIT = 60;
+  const undoStack = [];
+  const redoStack = [];
+  let _historyMuted = false;
+
+  function serializeBoard() {
+    return {
+      components: state.components.map(c => ({
+        type:     c.type,
+        values:   c.values,
+        holeRefs: c.holeRefs,
+        position: c.group ? { x: +c.group.position.x.toFixed(3), z: +c.group.position.z.toFixed(3) } : null,
+      })),
+      wires: state.wires.map(w => ({
+        startHole:    w.startHole,
+        endHole:      w.endHole,
+        startCompIdx: w.startComp ? state.components.indexOf(w.startComp) : -1,
+        startPinIdx:  w.startPinIdx,
+        endCompIdx:   w.endComp   ? state.components.indexOf(w.endComp)   : -1,
+        endPinIdx:    w.endPinIdx,
+        color:        w.group?.userData?.color ?? state.wireColor,
+      })),
+    };
+  }
+
+  function newCircuitId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2);
+  }
+
+  function snapshot() {
+    // Mint the id now if the autosave has not yet. A snapshot carrying a null
+    // id would, once undone, make the next autosave file a second project row
+    // for the same circuit.
+    if (!state.circuitId) state.circuitId = newCircuitId();
+    const snap = serializeBoard();
+    snap.id   = state.circuitId;
+    snap.name = state.circuitName;
+    return snap;
+  }
+
+  function pushHistory() {
+    if (_historyMuted) return;
+    undoStack.push(snapshot());
+    if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+    redoStack.length = 0;
+  }
+
+  function clearHistory() {
+    undoStack.length = 0;
+    redoStack.length = 0;
+  }
+
+  function applySnapshot(snap) {
+    clearBoard();
+    restoreBoard(snap);
+    state.circuitId   = snap.id;
+    state.circuitName = snap.name;
+    const nf = document.getElementById('circuit-name-field');
+    if (nf) nf.textContent = snap.name;
+    refreshCounts();
+  }
+
+  App.undo = function () {
+    if (!undoStack.length) { App.setHint('Nothing to undo', 1500); return; }
+    redoStack.push(snapshot());
+    applySnapshot(undoStack.pop());
+    App.setHint('Undone', 1200);
+  };
+
+  App.redo = function () {
+    if (!redoStack.length) { App.setHint('Nothing to redo', 1500); return; }
+    undoStack.push(snapshot());
+    applySnapshot(redoStack.pop());
+    App.setHint('Redone', 1200);
   };
 
   // ── Helpers ───────────────────────────────────────────────────
@@ -797,7 +988,7 @@
     if (!state.components.length && !state.wires.length) return; // nothing to save
 
     if (!state.circuitId) {
-      state.circuitId = Date.now().toString(36) + Math.random().toString(36).slice(2);
+      state.circuitId = newCircuitId();
     }
 
     // Lightweight thumbnail for auto-save (smaller than download)
@@ -820,26 +1011,14 @@
       App.controls.update();
     } catch {}
 
+    const board = serializeBoard();
     const entry = {
       id:         state.circuitId,
       name:       state.circuitName,
       thumbnail:  thumb,
       updatedAt:  new Date().toISOString(),
-      components: state.components.map((c, i) => ({
-        type:     c.type,
-        resistance: c.resistance,
-        holeRefs: c.holeRefs,
-        position: c.group ? { x: +c.group.position.x.toFixed(3), z: +c.group.position.z.toFixed(3) } : null,
-      })),
-      wires: state.wires.map(w => ({
-        startHole:    w.startHole,
-        endHole:      w.endHole,
-        startCompIdx: w.startComp ? state.components.indexOf(w.startComp) : -1,
-        startPinIdx:  w.startPinIdx,
-        endCompIdx:   w.endComp   ? state.components.indexOf(w.endComp)   : -1,
-        endPinIdx:    w.endPinIdx,
-        color:        w.group?.children?.[0]?.material?.color?.getHex?.() ?? state.wireColor,
-      })),
+      components: board.components,
+      wires:      board.wires,
     };
 
     const projects = lsProjects();
@@ -855,20 +1034,33 @@
     if (wc) wc.textContent = state.wires.length;
 
     const clearBtn = document.getElementById('clear-all-btn');
-    if (clearBtn) clearBtn.style.display =
-      (state.components.length || state.wires.length) ? 'flex' : 'none';
+    const empty = !state.components.length && !state.wires.length;
+    if (clearBtn) clearBtn.style.display = empty ? 'none' : 'flex';
+    const es = document.getElementById('empty-state');
+    if (es) es.style.display = empty && !App.previewing ? 'block' : 'none';
 
     scheduleAutoSave();
   }
+  App.refreshCounts = refreshCounts;
 
   // ── Boot ─────────────────────────────────────────────────────
   // Must run AFTER all App.* methods are defined above.
+  App.camera.position.set(_defaultCamPos.x, _defaultCamPos.y, _defaultCamPos.z);
   state.breadboard = App.createBreadboard();
   App.scene.add(state.breadboard.group);
   App.initInteraction();
   initSidebar();
   setMode('select');
   animate();
+
+  document.getElementById('load-demo-btn')?.addEventListener('click', () => {
+    fetch('/editor/demo.surge').then(r => r.json()).then(data => {
+      data.name = 'Demo';
+      delete data.id;
+      App.loadCircuitData(data);
+    }).catch(() => App.setHint('Could not load the demo circuit', 2500));
+  });
+  refreshCounts();
 
   // Auto-load circuit passed from dashboard via sessionStorage
   const _pending = sessionStorage.getItem('surge_load_circuit');
@@ -879,6 +1071,7 @@
       // Restore project ID so auto-save updates the same entry
       if (loaded.id) state.circuitId = loaded.id;
       App.loadCircuitData(loaded);
+      clearHistory();   // the opened circuit is the starting point, not an edit
     } catch (e) { console.warn('Auto-load failed', e); }
   } else {
     // New circuit — pick an auto-incremented untitled name

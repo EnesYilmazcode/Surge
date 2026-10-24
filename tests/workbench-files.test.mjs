@@ -36,3 +36,13 @@ test('invalid sockets, pin references and untrusted thumbnails are rejected or r
   invalid.components[1].resistance = -1
   assert.throws(() => validate(invalid), /resistance/)
 })
+
+test('modern component values and LED colors survive project loading', () => {
+  const circuit = fixture()
+  circuit.components[1].values = { resistance: 2200 }
+  circuit.components.push({ type: 'led', holeRefs: [{ col: 8, row: 'b' }, { col: 10, row: 'b' }], values: { color: 'blue', forwardVoltage: 3.2, maxCurrent: 0.02 } })
+  const result = validate(circuit)
+  assert.equal(result.components[1].values.resistance, 2200)
+  assert.equal(result.components[2].values.color, 'blue')
+  assert.equal(result.components[2].values.forwardVoltage, 3.2)
+})

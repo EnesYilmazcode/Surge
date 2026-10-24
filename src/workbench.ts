@@ -1,7 +1,14 @@
 import * as THREE from 'three-classic'
 import { OrbitControls } from 'three-classic/examples/jsm/controls/OrbitControls.js'
+import { RoomEnvironment } from 'three-classic/examples/jsm/environments/RoomEnvironment.js'
 
-;(window as unknown as Record<string, unknown>).THREE = { ...THREE, OrbitControls }
+;(window as unknown as Record<string, unknown>).THREE = { ...THREE, OrbitControls, RoomEnvironment }
+;(window as unknown as Record<string, unknown>).App = {
+  onReady(callback: () => void) {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', callback, { once: true })
+    else callback()
+  },
+}
 
 async function loadScript(name: string) {
   await new Promise<void>((resolve, reject) => {
@@ -15,7 +22,7 @@ async function loadScript(name: string) {
 }
 
 async function boot() {
-  for (const name of ['scene', 'board', 'parts', 'input', 'solver', 'simulation', 'project-format', 'editor', 'chat', 'projects']) {
+  for (const name of ['board-model', 'scene', 'board', 'parts', 'input', 'solver', 'simulation', 'project-format', 'editor', 'inspector', 'chat', 'thumbs', 'projects']) {
     await loadScript(name)
   }
 }

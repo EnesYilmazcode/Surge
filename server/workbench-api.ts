@@ -7,7 +7,7 @@ const holePattern = /^(?:[a-j]|(?:tp|tn|bn|bp)_)([1-9]|[1-4][0-9]|50)$/
 const pinPattern = /^(resistor|led|battery|buzzer|button)_(\d+)_pin([01])$/
 const colors = ['red', 'yellow', 'green', 'blue', 'black', 'white']
 
-export function validateWorkbenchActions(actions: unknown, board: { components: Array<{ type: string; id: string }> }) {
+export function validateWorkbenchActions(actions: unknown, board: { components: Array<{ type: string; id?: string }> }) {
   if (!Array.isArray(actions) || actions.length > 50) throw new Error('Invalid action list.')
   const counts = Object.fromEntries(kinds.map((kind) => [kind, board.components.filter((part) => part.type.toLowerCase() === kind).length]))
   for (const action of actions) {
@@ -44,7 +44,11 @@ const schema = {
   properties: {
     reply: string,
     actions: { type: 'array', maxItems: 50, items: { anyOf: [
-      ...['resistor', 'led', 'buzzer', 'button'].map((kind) => action('place_' + kind, { holeA: string, holeB: string }, ['holeA', 'holeB'])),
+      ...['resistor', 'led', 'buzzer', 'button'].map((kind) => action('place_' + kind, {
+        holeA: string, holeB: string,
+        ...(kind === 'resistor' ? { resistance: { type: 'number', minimum: 1, maximum: 1000000000 } } : {}),
+        ...(kind === 'led' ? { color: { type: 'string', enum: ['red', 'yellow', 'green', 'blue', 'white'] } } : {}),
+      }, ['holeA', 'holeB'])),
       action('place_battery'),
       action('add_wire', { from: string, to: string, color: { type: 'string', enum: colors } }, ['from', 'to', 'color']),
       action('remove_wire', { from: string, to: string }, ['from', 'to']),
@@ -59,7 +63,7 @@ const schema = {
 const instruction = `You are Surge, an electronics assistant controlling a 3D solderless breadboard.
 Return JSON with reply and actions. For explanations and analysis only, return no actions.
 Propose complete working circuits when asked to build; preserve existing work unless the user requests a new circuit or a clear.
-Supported parts: resistor (220 ohms), red LED, 9 V battery, active buzzer, momentary push button. Do not invent unsupported parts.
+Supported parts: resistor (470 ohms by default), LED (red, yellow, green, blue or white), 9 V battery, active buzzer, momentary push button. A resistor placement may include resistance in ohms, and an LED placement may include color. Do not invent unsupported parts.
 The board has columns 1-50. Rows a-e in the SAME column share a node; rows f-j share a different node. Adjacent columns are NOT connected.
 The center channel separates rows e and f. Rails tp (top positive), tn (top negative), bn (bottom positive), bp (bottom negative) are four independent buses.
 Body hole names: a1 through j50. Rail hole names: tp_1, tn_1, bn_1, bp_1 through _50.
@@ -69,7 +73,7 @@ Off-board battery endpoints: battery_0_pin0, battery_0_pin1, etc. Component indi
 Connect both battery terminals explicitly: e.g. battery_0_pin0 -> tp_3, battery_0_pin1 -> tn_3. Rails do not power body rows until wired.
 For a simple LED circuit, use resistor a3-a7, LED b9-b7 (cathode b9, anode b7), then wire tp_3-a3, a9-tn_9 and both battery terminals to the rails.
 All add_wire endpoints must resolve to existing or earlier proposed parts. Use red, yellow, green, blue, black or white.
-The MNA DC solver supports resistor networks, nonlinear LEDs, internal battery resistance and button switches. It does not simulate arbitrary ICs or time-domain electronics.
+The DC solver supports resistor networks, LED forward voltage and button switches. It does not simulate arbitrary ICs or time-domain electronics.
 Changes are previewed and applied by the user; never claim they are already applied. Keep replies practical and concise.`
 
 function json(response: ServerResponse, status: number, body: unknown) {
@@ -81,14 +85,14 @@ export function createWorkbenchHandler(options: SurgeOptions) {
   return async (request: IncomingMessage, response: ServerResponse) => {
     if (request.method !== 'POST') { json(response, 405, { error: 'Method not allowed.' }); return }
     if (!request.headers['content-type']?.startsWith('application/json')) { json(response, 415, { error: 'Send application/json.' }); return }
-    let body: { message: string; markdown: string; history?: Array<{ role: string; text: string }>; board: { components: Array<{ type: string; id: string }>; wires: unknown[] } }
+    let body: { message: string; markdown: string; history?: Array<{ role: string; text: string }>; board: { components: Array<{ type: string; id?: string }>; wires: unknown[] } }
     try {
       let input = ''
       for await (const chunk of request) { input += chunk.toString(); if (input.length > 500000) throw new Error() }
       body = JSON.parse(input)
       if (!body || typeof body.message !== 'string' || !body.message.trim() || body.message.length > 6000 || typeof body.markdown !== 'string' || body.markdown.length > 250000) throw new Error()
       if (!body.board || !Array.isArray(body.board.components) || body.board.components.length > 300 || !Array.isArray(body.board.wires) || body.board.wires.length > 1000) throw new Error()
-      if (body.board.components.some((part) => !part || typeof part.type !== 'string' || !kinds.includes(part.type.toLowerCase()) || typeof part.id !== 'string')) throw new Error()
+      if (body.board.components.some((part) => !part || typeof part.type !== 'string' || !kinds.includes(part.type.toLowerCase()) || (part.id !== undefined && typeof part.id !== 'string'))) throw new Error()
       if (body.history !== undefined && (!Array.isArray(body.history) || body.history.length > 12 || body.history.some((entry) => !entry || !['user', 'model'].includes(entry.role) || typeof entry.text !== 'string' || entry.text.length > 16000))) throw new Error()
     } catch { json(response, 400, { error: 'Invalid board or message. Your circuit has not changed.' }); return }
     if (!options.apiKey) { json(response, 503, { error: 'Connect a Gemini key on the local server to use Surge.' }); return }
