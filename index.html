@@ -40,7 +40,7 @@
     }
     .is-loaded .scene { opacity: 1; }
 
-    /* A small top bar: the name, and a way into the editor. */
+    /* A small top bar: a way into the editor. The name is the 3D title in the scene. */
     .top {
       position: fixed;
       top: 0;
@@ -48,7 +48,7 @@
       right: 0;
       z-index: 2;
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-end;
       align-items: center;
       padding: 1.1rem 1.4rem;
       pointer-events: none;
@@ -61,11 +61,9 @@
       font-weight: 600;
       font-size: 0.95rem;
     }
-    .brand { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 1.05rem !important; }
-    .brand img { display: block; width: 26px; height: 26px; border-radius: 7px; }
     .open { opacity: 0.75; transition: opacity 0.2s ease, color 0.2s ease; }
     .open:hover { opacity: 1; color: #F59E0B; }
-    /* The title sits above the bench, centred, and rises in once the scene is ready. */
+    /* The tagline sits above the bench, centred, and rises in once the scene is ready. */
     .hero {
       position: fixed;
       top: 7vh;
@@ -75,24 +73,12 @@
       text-align: center;
       pointer-events: none;
     }
-    .hero-title {
-      font-family: 'Space Grotesk', system-ui, sans-serif;
-      font-weight: 700;
-      font-size: clamp(3rem, 9vw, 6.5rem);
-      line-height: 1;
-      letter-spacing: -0.02em;
-      color: #F4F1EA;
-      text-shadow: 0 6px 40px rgba(0, 0, 0, 0.35);
-      opacity: 0;
-    }
     .hero-sub {
-      margin-top: 0.9rem;
       font-size: 0.95rem;
       letter-spacing: 0.02em;
       color: rgba(244, 241, 234, 0.66);
       opacity: 0;
     }
-    .is-loaded .hero-title { animation: rise 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 0.1s forwards; }
     .is-loaded .hero-sub   { animation: rise 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 0.25s forwards; }
     @keyframes rise {
       from { opacity: 0; transform: translateY(14px); }
@@ -102,7 +88,17 @@
       .hero { top: 9vh; }
     }
 
-    .open:focus-visible, .brand:focus-visible {
+    /* The name, for screen readers: on screen it is the 3D title in the scene. */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+
+    .open:focus-visible {
       outline: 2px solid #F59E0B;
       outline-offset: 3px;
       border-radius: 6px;
@@ -112,16 +108,13 @@
 <body>
   <iframe class="scene" id="scene" src="app.html?home=1" title="A 3D breadboard with a circuit on it. A green button on the bench runs the circuit."></iframe>
 
+  <h1 class="sr-only">Surge</h1>
+
   <div class="hero">
-    <div class="hero-title">Surge</div>
     <div class="hero-sub">A 3D breadboard in your browser</div>
   </div>
 
   <header class="top">
-    <a class="brand" href="/">
-      <img src="/editor/mark.svg" width="26" height="26" alt="" />
-      Surge
-    </a>
     <a class="open" href="app.html">Open the editor</a>
   </header>
 

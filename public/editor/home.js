@@ -3,19 +3,20 @@
 //
 //  One circuit, centred on the bench, with nothing to scroll. Across the front,
 //  a large guarded button spans the breadboard: pressing it opens the editor.
-//  The Surge mark lies on the bench beside the board. Nothing is saved.
+//  Behind the board, SURGE stands on the bench in 3D letters. Nothing is saved.
 // ─────────────────────────────────────────────────────────────
 
 (function (App) {
 
   const { placePart, placeJumper, tween } = App.stage;
 
-  const GREEN = 0x15803d, ORANGE = 0xe98b0b;
+  const GREEN = 0x15803d, ORANGE = 0xe98b0b, CREAM = 0xf4f1ea;
   const BASE_MAT  = new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.5, metalness: 0.2 });
   const GUARD_MAT = new THREE.MeshPhysicalMaterial({ color: 0x8d9198, roughness: 0.38, metalness: 0.55, clearcoat: 0.2 });
   const CAP_MAT   = new THREE.MeshPhysicalMaterial({ color: GREEN, roughness: 0.45, emissive: 0x0f5d2a, emissiveIntensity: 0.25 });
-  const WHITE_MAT = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
-  const ORANGE_MAT = new THREE.MeshStandardMaterial({ color: ORANGE, roughness: 0.5 });
+  // The title letters: cream faces, with the brand orange on their sides.
+  const FACE_MAT  = new THREE.MeshPhysicalMaterial({ color: App.lin(CREAM), roughness: 0.4, clearcoat: 0.5, clearcoatRoughness: 0.3 });
+  const SIDE_MAT  = new THREE.MeshPhysicalMaterial({ color: App.lin(ORANGE), roughness: 0.45, clearcoat: 0.3, clearcoatRoughness: 0.4 });
 
   // A rounded rectangle, in the x-y plane, centred on the origin.
   function rounded(w, d, r) {
@@ -70,26 +71,28 @@
 
   // The button is a real part of the bench, as before: a dark base, a grey guard
   // standing round the cap, and a green cap that presses down. It spans `length`.
+  // At rest the cap stands above the guard's rim; pressed, it sinks just below it.
+  const BASE_H = 0.35, GUARD_H = 0.85, CAP_H = 1.1, PRESS = 0.36;
   function makeEditorButton(x, z, groundY, length) {
     const W = 3.6, L = length;
     const CL = L - 1.8, CW = W - 1.2;          // the cap
     const group = new THREE.Group();
     group.position.set(x, groundY, z);
 
-    const base = block(L + 1.0, W + 0.8, 0.5, 0.35, BASE_MAT);
-    const guard = block(L + 0.7, W + 0.5, 0.6, 0.85, GUARD_MAT,
+    const base = block(L + 1.0, W + 0.8, 0.5, BASE_H, BASE_MAT);
+    const guard = block(L + 0.7, W + 0.5, 0.6, GUARD_H, GUARD_MAT,
       { w: CL + 0.16, d: CW + 0.16, r: 0.4 });
-    guard.position.y = 0.35;
+    guard.position.y = BASE_H;
 
     const capGroup = new THREE.Group();
-    capGroup.position.y = 0.35;
-    const cap = block(CL, CW, 0.4, 0.55, CAP_MAT);
+    capGroup.position.y = BASE_H;
+    const cap = block(CL, CW, 0.4, CAP_H, CAP_MAT);
     const label = new THREE.Mesh(
       new THREE.PlaneGeometry(CL - 0.6, CW - 0.4),
       new THREE.MeshBasicMaterial({ map: labelTexture(), transparent: true, depthWrite: false, toneMapped: false }),
     );
     label.rotation.x = -Math.PI / 2;
-    label.position.y = 0.55 + 0.01;
+    label.position.y = CAP_H + 0.01;
     capGroup.add(cap, label);
 
     group.add(base, guard, capGroup);
@@ -97,24 +100,48 @@
     return { group, cap: capGroup, hit: [cap, label], restY: capGroup.position.y };
   }
 
-  // The Surge mark on the bench: the orange tile with its white trace, as in the favicon.
-  function makeLogo(x, z, groundY) {
+  // SURGE in 3D: one extruded letter per character, standing on the bench and
+  // facing the camera, sized to span `width`. The glyphs are Space Grotesk Bold,
+  // the page's own face, cut down to these five letters (fonts/OFL.txt).
+  const TITLE = 'SURGE';
+  function makeTitle(font, cx, z, groundY, width) {
+    const res = font.data.resolution;
+    const gap = 0.06;                                   // extra tracking, in ems
+    const ems = [...TITLE].reduce((sum, ch) => sum + font.data.glyphs[ch].ha / res, 0) + gap * (TITLE.length - 1);
+    const size = width / ems, depth = size * 0.28;
     const group = new THREE.Group();
-    const S = 4.2 / 24;          // the mark is drawn on a 24-unit grid
-    group.add(block(4.2, 4.2, 0.8, 0.3, ORANGE_MAT));
-    const pts = [[16.2, 5.6], [9.9, 5.6], [7.4, 8.1], [7.4, 9.7], [9.7, 12], [14.3, 12], [16.6, 14.3],
-                 [16.6, 15.9], [14.1, 18.4], [7.8, 18.4]]
-      .map(([px, py]) => new THREE.Vector3((px - 12) * S, 0.36, (py - 12) * S));
-    const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
-    group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 160, 0.2, 10, false), WHITE_MAT));
-    for (const [px, py] of [[16.6, 5.6], [7.4, 18.4]]) {
-      const dot = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.08, 20), WHITE_MAT);
-      dot.position.set((px - 12) * S, 0.34, (py - 12) * S);
-      group.add(dot);
-    }
-    group.position.set(x, groundY, z);
+    group.position.set(cx - width / 2, groundY, z);
+    let x = 0;
+    const letters = [...TITLE].map(ch => {
+      const geo = new THREE.TextGeometry(ch, {
+        font, size, height: depth, curveSegments: 10,
+        bevelEnabled: true, bevelThickness: size * 0.03, bevelSize: size * 0.02, bevelSegments: 3,
+      });
+      geo.translate(0, size * 0.03, -depth / 2);          // the bevel sits on the bench, not under it
+      const mesh = new THREE.Mesh(geo, [FACE_MAT, SIDE_MAT]);
+      mesh.castShadow = mesh.receiveShadow = true;
+      mesh.position.x = x;
+      x += (font.data.glyphs[ch].ha / res + gap) * size;
+      group.add(mesh);
+      return mesh;
+    });
     App.scene.add(group);
-    return group;
+    return { group, letters, size };
+  }
+
+  // The letters drop onto the bench one after another: a fall, then a small hop.
+  function dropIn(title) {
+    const lift = title.size * 1.4, FALL = 0.68;
+    const height = k => k < FALL ? lift * (1 - (k / FALL) ** 2)
+                                 : lift * 0.06 * 4 * ((k - FALL) / (1 - FALL)) * (1 - (k - FALL) / (1 - FALL));
+    title.letters.forEach((m, i) => {
+      m.position.y = lift;
+      m.visible = false;
+      setTimeout(() => {
+        m.visible = true;
+        tween(720, k => { m.position.y = height(k); });
+      }, 250 + i * 110);
+    });
   }
 
   // Which part of the button is under the pointer?
@@ -130,17 +157,26 @@
     return ray.intersectObjects(editor.hit, false).length > 0;
   }
 
-  // Press the cap down, then take the page to the editor.
-  let leaving = false;
+  // The cap follows a target height: down while it is held, back up when let go.
+  // Releasing over the button opens the editor, after the press has shown. While
+  // it is held the camera stays put, so pressing never turns into an orbit.
+  let capTarget = 0, lastT = null, held = false, leaving = false;
+  function capTick(t) {
+    const dt = lastT == null ? 0 : Math.min(0.1, t - lastT);
+    lastT = t;
+    const y = editor.cap.position.y;
+    editor.cap.position.y = y + (capTarget - y) * (1 - Math.exp(-dt * 28));
+  }
+  function press()   { held = true;  capTarget = editor.restY - PRESS; App.controls.enabled = false; }
+  function release() { held = false; App.controls.enabled = true; if (!leaving) capTarget = editor.restY; }
   function openEditor() {
     if (leaving) return;
     leaving = true;
-    tween(160, k => { editor.cap.position.y = editor.restY - 0.18 * k; }).then(() => {
-      window.top.location.href = 'app.html';
-    });
+    capTarget = editor.restY - PRESS;
+    setTimeout(() => { window.top.location.href = 'app.html'; }, 140);
   }
 
-  function setup(demo) {
+  function setup(demo, font) {
     const bb = App.state.breadboard;
     App.clearAll();
 
@@ -161,8 +197,9 @@
     App.homeButton = editor;   // for the page and for tests
     whole.union(new THREE.Box3().setFromObject(editor.group));
 
-    const logo = makeLogo(boardBox.min.x - 6, cz, groundY);
-    whole.union(new THREE.Box3().setFromObject(logo));
+    // The title stands behind the board, a little narrower than it.
+    const title = font ? makeTitle(font, cx, boardBox.min.z - 2.4, groundY, length * 0.86) : null;
+    if (title) whole.union(new THREE.Box3().setFromObject(title.group));
 
     const center = whole.getCenter(new THREE.Vector3());
     const size = whole.getSize(new THREE.Vector3());
@@ -185,21 +222,39 @@
     // The cap breathes, so the button reads as live.
     App.addTicker(t => { CAP_MAT.emissiveIntensity = 0.22 + 0.12 * (0.5 + 0.5 * Math.sin(t * 1.6)); });
 
-    // The canvas answers the pointer: the button opens the editor, and shows a hand over it.
+    // The canvas answers the pointer like a real button: the cap goes down when
+    // pressed and comes back up when let go; letting go over it opens the editor.
+    capTarget = editor.restY;
+    App.addTicker(capTick);
     const canvas = App.renderer.domElement;
     canvas.addEventListener('pointerdown', e => {
-      if (e.button === 0 && overButton(e)) openEditor();
+      if (e.button !== 0 || !overButton(e)) return;
+      canvas.setPointerCapture?.(e.pointerId);
+      press();
     });
+    canvas.addEventListener('pointerup', e => {
+      if (!held) return;
+      if (overButton(e)) openEditor(); else release();
+    });
+    canvas.addEventListener('pointercancel', release);
     canvas.addEventListener('pointermove', e => {
-      canvas.style.cursor = overButton(e) ? 'pointer' : '';
+      const over = overButton(e);
+      canvas.style.cursor = over ? 'pointer' : '';
+      if (held && !leaving) capTarget = over ? editor.restY - PRESS : editor.restY;   // slide off to cancel
     });
+
+    if (title) dropIn(title);
 
     window.dispatchEvent(new CustomEvent('surge-home-ready'));
   }
 
-  fetch('/editor/demo.surge')
+  // The title needs its font; without it the bench still loads, untitled.
+  const font = fetch('/editor/fonts/space-grotesk-bold-surge.typeface.json')
     .then(r => r.json())
-    .then(setup)
+    .then(data => new THREE.Font(data))
+    .catch(() => null);
+  Promise.all([fetch('/editor/demo.surge').then(r => r.json()), font])
+    .then(([demo, f]) => setup(demo, f))
     .catch(() => {});
 
 })(window.App);
