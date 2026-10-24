@@ -45,6 +45,29 @@ test('component builders produce physically based surfaces and exact electrical 
   }
 })
 
+test('ESP32 model puts its 30 header pins on the board grid from the two first-pin holes', () => {
+  const app = models()
+  const a = { x: 2, z: 1.75 }, b = { x: 2, z: -1.75 }
+  const esp = app.buildESP32(a, b)
+  assert.equal(esp.pins.length, 30)
+  assert.equal(app.ESP32_PINS.length, 30)
+  assert.deepEqual([esp.pins[0].x, esp.pins[0].z], [a.x, a.z])
+  assert.deepEqual([esp.pins[15].x, esp.pins[15].z], [b.x, b.z])
+  for (let i = 1; i < 15; i++) {
+    assert.ok(Math.abs(esp.pins[i].x - (a.x + 0.4 * i)) < 1e-9)
+    assert.ok(Math.abs(esp.pins[i].z - a.z) < 1e-9)
+    assert.ok(Math.abs(esp.pins[15 + i].x - (b.x + 0.4 * i)) < 1e-9)
+  }
+  // the model's own header pins land where the electrical pins say
+  const bounds = new THREE.Box3().setFromObject(esp.group)
+  assert.ok(bounds.min.y < 0 && bounds.max.y > 0.8)
+  assert.ok(bounds.min.x < a.x && bounds.max.x > a.x + 0.4 * 14)
+  esp.group.userData.setLit(true, 1)
+  esp.group.userData.setPowered(true)
+  app.setHighlight(esp.group, true)
+  app.setHighlight(esp.group, false)
+})
+
 test('LED model exposes simulation-driven illumination and reversible highlighting', () => {
   const app = models()
   const led = app.buildLED({ x: -0.4, z: 0 }, { x: 0.4, z: 0 }, 'blue')

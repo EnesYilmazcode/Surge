@@ -11,7 +11,7 @@
 //  reads as plugged in rather than resting on top.
 //
 //  Exports: App.buildResistor, buildLED, buildBattery, buildBuzzer,
-//           buildButton, buildWire, buildPreview, setHighlight,
+//           buildButton, buildESP32, buildWire, buildPreview, setHighlight,
 //           componentValues, formatValue, ledHex, resistorBands
 // ─────────────────────────────────────────────────────────────
 
@@ -610,6 +610,314 @@
   }
 
   // ─────────────────────────────────────────────────────────────
+  //  ESP32 — a 30-pin DevKit (DOIT V1 layout)
+  //
+  //  holeA and holeB are the first pin of each header, the pair at the
+  //  antenna end; the board is as wide as that span, so it straddles
+  //  whichever rows it is placed across. The headers run perpendicular
+  //  to A→B, toward the USB end: in the local frame +x is A→B and the
+  //  pins run along +z, which keeps the A header on the left when the
+  //  board is seen from above with the antenna at the top.
+  //
+  //  pins[0..14]  = header A, ESP32_PINS[0..14]  (EN … VIN)
+  //  pins[15..29] = header B, ESP32_PINS[15..29] (D23 … 3V3)
+  // ─────────────────────────────────────────────────────────────
+  const ESP32_PINS = [
+    'EN', 'VP', 'VN', 'D34', 'D35', 'D32', 'D33', 'D25', 'D26', 'D27', 'D14', 'D12', 'D13', 'GND', 'VIN',
+    'D23', 'D22', 'TX0', 'RX0', 'D21', 'D19', 'D18', 'D5', 'TX2', 'RX2', 'D4', 'D2', 'D15', 'GND', '3V3',
+  ];
+  App.ESP32_PINS = ESP32_PINS;
+
+  const ESP = {
+    N: 15, P: 0.4,           // pins per header, pitch
+    SPACER: 0.4,             // header plastic under the board
+    T: 0.25,                 // PCB thickness (1.6 mm)
+    ANT: 1.3, USB: 1.2,      // board overhang past the first and last pin
+    EDGE: 0.475,             // board edge past the header centre line
+  };
+  App.ESP32_DIMS = ESP;
+
+  const ESP_MAT = {
+    mask:   new THREE.MeshPhysicalMaterial({ color: lin(0x0e1513), roughness: 0.4, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.3 }),
+    module: new THREE.MeshPhysicalMaterial({ color: lin(0x121415), roughness: 0.5, metalness: 0, clearcoat: 0.4, clearcoatRoughness: 0.4 }),
+    trace:  new THREE.MeshStandardMaterial({ color: lin(0x1c2221), roughness: 0.45, metalness: 0.2 }),
+    can:    new THREE.MeshStandardMaterial({ color: lin(0xcfd2d6), metalness: 1.0, roughness: 0.28 }),
+    solder: new THREE.MeshStandardMaterial({ color: lin(0xc9ccd0), metalness: 1.0, roughness: 0.18 }),
+    ceramic: new THREE.MeshStandardMaterial({ color: lin(0xc89a4e), roughness: 0.6, metalness: 0 }),
+    plunger: new THREE.MeshPhysicalMaterial({ color: lin(0x22252b), roughness: 0.35, clearcoat: 0.7, clearcoatRoughness: 0.25 }),
+  };
+  Object.values(ESP_MAT).forEach(m => { m.userData.shared = true; });
+
+  // Silkscreen for one board width: pin names beside the headers, the
+  // header outlines, button names and the board name. Cached per span.
+  const _silk = new Map();
+  function esp32Silkscreen(span, W, L) {
+    const key = span.toFixed(3);
+    if (_silk.has(key)) return _silk.get(key);
+    const pxPerUnit = 230;
+    const cw = Math.round(W * pxPerUnit), ch = Math.round(L * pxPerUnit);
+    const c = document.createElement('canvas');
+    c.width = cw; c.height = ch;
+    const g = c.getContext('2d');
+    const { N, P, ANT } = ESP;
+    // canvas top = antenna end, canvas left = header A
+    const px = x => (x + W / 2) * pxPerUnit;
+    const pz = z => (z + ANT) * pxPerUnit;
+    g.clearRect(0, 0, cw, ch);
+    g.fillStyle = g.strokeStyle = '#eef0ec';
+    g.lineWidth = 3;
+    g.textBaseline = 'middle';
+    g.font = '700 25px "JetBrains Mono", Menlo, Consolas, monospace';
+    for (let i = 0; i < N; i++) {
+      g.textAlign = 'right';
+      g.fillText(ESP32_PINS[i], px(-span / 2 - 0.13), pz(i * P));
+      g.textAlign = 'left';
+      g.fillText(ESP32_PINS[N + i], px(span / 2 + 0.13), pz(i * P));
+    }
+    for (const sx of [-1, 1]) {
+      const x0 = px(sx * span / 2 - P / 2 + 0.02), z0 = pz(-P / 2 + 0.02);
+      g.strokeRect(x0, z0, (P - 0.04) * pxPerUnit, (N * P - 0.04) * pxPerUnit);
+    }
+    g.textAlign = 'center';
+    g.font = '700 30px Inter, "Segoe UI", Arial, sans-serif';
+    g.fillText('ESP32 DEVKIT V1', px(0), pz(3.35));
+    g.font = '700 20px Inter, "Segoe UI", Arial, sans-serif';
+    g.fillText('EN', px(-1.05), pz((N - 1) * P + ESP.USB - 0.11));
+    g.fillText('BOOT', px(1.05), pz((N - 1) * P + ESP.USB - 0.11));
+    const tex = new THREE.CanvasTexture(c);
+    tex.encoding = THREE.sRGBEncoding;
+    tex.anisotropy = 8;
+    const mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.6, depthWrite: false });
+    mat.userData.shared = true;
+    _silk.set(key, mat);
+    return mat;
+  }
+
+  let _canMark = null;
+  function esp32CanMarking() {
+    if (_canMark) return _canMark;
+    const c = document.createElement('canvas');
+    c.width = 512; c.height = 576;
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, 512, 576);
+    g.fillStyle = 'rgba(70,74,80,0.6)';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = '700 54px Inter, "Segoe UI", Arial, sans-serif';
+    g.fillText('ESP32-WROOM-32', 256, 200);
+    g.font = '600 34px Inter, "Segoe UI", Arial, sans-serif';
+    g.fillText('Wi-Fi + BT 4.2', 256, 290);
+    g.fillText('4MB FLASH', 256, 350);
+    const tex = new THREE.CanvasTexture(c);
+    tex.encoding = THREE.sRGBEncoding;
+    tex.anisotropy = 8;
+    _canMark = new THREE.MeshStandardMaterial({ map: tex, transparent: true, metalness: 0.6, roughness: 0.4, depthWrite: false });
+    _canMark.userData.shared = true;
+    return _canMark;
+  }
+
+  function buildESP32(holeA, holeB) {
+    const { group, span, A } = frame(holeA, holeB);
+    const { N, P, SPACER, T, ANT, USB, EDGE } = ESP;
+    const W = span + 2 * EDGE;
+    const zMin = -ANT, zMax = (N - 1) * P + USB, L = zMax - zMin, zMid = (zMin + zMax) / 2;
+    const y0 = SPACER, top = SPACER + T;
+
+    const mesh = (geo, mat, x, y, z) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      m.castShadow = m.receiveShadow = true;
+      group.add(m);
+      return m;
+    };
+    const box = (w, h, d, mat, x, y, z) => mesh(new THREE.BoxGeometry(w, h, d), mat, x, y, z);
+    // a part sitting on the board top, (x, z) its centre
+    const onTop = (w, h, d, mat, x, z) => box(w, h, d, mat, x, top + h / 2, z);
+
+    // ── PCB, with the four mounting holes
+    const holes = [];
+    const shape = roundedRectShape(W, L, 0.22);
+    for (const sx of [-1, 1]) for (const z of [zMin + 0.32, zMax - 0.32]) {
+      const x = sx * (W / 2 - 0.3);
+      holes.push([x, z]);
+      const h = new THREE.Path();
+      h.absarc(x, -(z - zMid), 0.17, 0, Math.PI * 2, true);
+      shape.holes.push(h);
+    }
+    const pcbGeo = new THREE.ExtrudeGeometry(shape, { depth: T, bevelEnabled: false, curveSegments: 12 });
+    pcbGeo.rotateX(-Math.PI / 2);
+    mesh(pcbGeo, ESP_MAT.mask, 0, y0, zMid);
+    for (const [x, z] of holes) {
+      const ring = mesh(new THREE.RingGeometry(0.17, 0.27, 28), ESP_MAT.solder, x, top + 0.002, z);
+      ring.rotation.x = -Math.PI / 2;
+    }
+
+    const silk = new THREE.Mesh(new THREE.PlaneGeometry(W, L), esp32Silkscreen(span, W, L));
+    silk.rotation.x = -Math.PI / 2;
+    silk.position.set(0, top + 0.003, zMid);
+    silk.renderOrder = 1;
+    group.add(silk);
+
+    // ── Headers: plastic spacer under the board, pins through it into
+    //    the breadboard, a solder joint on top of each
+    const pinGeo = new THREE.BoxGeometry(0.1, top + 0.3, 0.1);
+    const jointGeo = new THREE.LatheGeometry(
+      [[0, 0], [0.11, 0], [0.1, 0.03], [0.07, 0.07], [0.055, 0.1], [0, 0.11]].map(([r, y]) => new THREE.Vector2(r, y)), 16);
+    for (const sx of [-1, 1]) {
+      const x = sx * span / 2;
+      box(P - 0.02, SPACER, N * P, MAT.black, x, SPACER / 2, (N - 1) * P / 2);
+      for (let i = 0; i < N; i++) {
+        mesh(pinGeo, MAT.lead, x, (top + 0.3) / 2 - 0.22, i * P);
+        mesh(jointGeo, ESP_MAT.solder, x, top, i * P);
+      }
+    }
+
+    // ── WROOM module: its own thin PCB, the shield can, the antenna
+    const MW = 2.83, ML = 4.02, MT = 0.13;
+    const mz0 = zMin + 0.05, mz1 = mz0 + ML;
+    box(MW, MT, ML, ESP_MAT.module, 0, top + MT / 2, (mz0 + mz1) / 2);
+    const mTop = top + MT;
+
+    // castellated pads down both sides and across the inner end
+    const padGeo = new THREE.BoxGeometry(0.09, MT + 0.01, 0.09);
+    for (let k = 0; k < 13; k++) {
+      const z = mz1 - 0.17 - k * 0.2;
+      for (const sx of [-1, 1]) mesh(padGeo, bandMat(GOLD), sx * (MW / 2 - 0.035), top + MT / 2, z);
+    }
+    for (let k = 0; k < 10; k++) mesh(padGeo, bandMat(GOLD), -0.9 + k * 0.2, top + MT / 2, mz1 - 0.035);
+
+    const CW = 2.5, CL = 2.75, CH = 0.3;
+    const canGeo = new THREE.ExtrudeGeometry(roundedRectShape(CW, CL, 0.05), {
+      depth: CH - 0.03, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.025, bevelSegments: 3, curveSegments: 6,
+    });
+    canGeo.rotateX(-Math.PI / 2);
+    const canZ = mz1 - 0.12 - CL / 2;
+    mesh(canGeo, ESP_MAT.can, 0, mTop, canZ);
+    const mark = new THREE.Mesh(new THREE.PlaneGeometry(CW - 0.3, (CW - 0.3) * 576 / 512), esp32CanMarking());
+    mark.rotation.x = -Math.PI / 2;
+    mark.position.set(0, mTop + CH + 0.002, canZ);
+    mark.renderOrder = 1;
+    group.add(mark);
+
+    // meandered antenna trace under the mask
+    const az0 = mz0 + 0.12, az1 = canZ - CL / 2 - 0.18;
+    const tr = 0.032;
+    for (let k = 0; k < 9; k++) {
+      const x = -1.1 + k * 0.25;
+      box(tr, 0.006, az1 - az0, ESP_MAT.trace, x, mTop + 0.003, (az0 + az1) / 2);
+      if (k < 8) box(0.25 + tr, 0.006, tr, ESP_MAT.trace, x + 0.125, mTop + 0.003, k % 2 ? az1 : az0);
+    }
+    box(tr, 0.006, 0.18, ESP_MAT.trace, -1.1, mTop + 0.003, az1 + 0.09);
+
+    // ── USB end
+    // micro-USB receptacle, overhanging the edge a little
+    const UW = 1.18, UH = 0.4, UD = 0.9;
+    const usbShape = new THREE.Shape();
+    usbShape.moveTo(-UW / 2 + 0.12, 0); usbShape.lineTo(UW / 2 - 0.12, 0);
+    usbShape.lineTo(UW / 2, 0.14); usbShape.lineTo(UW / 2, UH); usbShape.lineTo(-UW / 2, UH);
+    usbShape.lineTo(-UW / 2, 0.14); usbShape.closePath();
+    const mouth = new THREE.Path();
+    mouth.moveTo(-UW / 2 + 0.15, 0.04); mouth.lineTo(-UW / 2 + 0.05, 0.15); mouth.lineTo(-UW / 2 + 0.05, UH - 0.04);
+    mouth.lineTo(UW / 2 - 0.05, UH - 0.04); mouth.lineTo(UW / 2 - 0.05, 0.15); mouth.lineTo(UW / 2 - 0.15, 0.04);
+    mouth.closePath();
+    usbShape.holes.push(mouth);
+    const usbGeo = new THREE.ExtrudeGeometry(usbShape, { depth: UD, bevelEnabled: false });
+    const usbZ = zMax + 0.1 - UD;
+    mesh(usbGeo, MAT.steel, 0, top, usbZ);
+    box(UW - 0.1, UH - 0.08, 0.04, MAT.steel, 0, top + UH / 2, usbZ + 0.04);   // back wall
+    box(UW - 0.3, 0.07, UD - 0.12, MAT.matte, 0, top + UH * 0.55, usbZ + UD / 2 + 0.04);   // tongue
+    for (const sx of [-1, 1]) box(0.16, 0.03, 0.22, MAT.steel, sx * (UW / 2 + 0.06), top + 0.015, usbZ + 0.25);   // tabs
+
+    // EN and BOOT: SMD tactile switches either side of the USB
+    for (const sx of [-1, 1]) {
+      const bz = zMax - 0.5;
+      onTop(0.62, 0.12, 0.5, MAT.matte, sx * 1.05, bz);
+      box(0.6, 0.03, 0.48, MAT.steel, sx * 1.05, top + 0.135, bz);
+      box(0.24, 0.08, 0.18, ESP_MAT.plunger, sx * 1.05, top + 0.19, bz);
+      for (const lx of [-1, 1]) box(0.1, 0.03, 0.12, MAT.steel, sx * 1.05 + lx * 0.33, top + 0.015, bz);
+    }
+
+    // AMS1117 regulator, SOT-223: tab on one side, three legs on the other
+    const rx = -0.72, rz = (N - 1) * P - 1.0;
+    onTop(1.02, 0.25, 0.55, MAT.matte, rx, rz);
+    box(0.47, 0.03, 0.32, MAT.lead, rx, top + 0.015, rz - 0.4);
+    for (let k = -1; k <= 1; k++) box(0.11, 0.03, 0.26, MAT.lead, rx + k * 0.36, top + 0.015, rz + 0.38);
+
+    // CP2102 USB-UART bridge, QFN-28, with its pin-1 dot
+    const qx = 0.6, qz = (N - 1) * P - 0.3;
+    onTop(0.79, 0.14, 0.79, MAT.matte, qx, qz);
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.05, 16), ESP_MAT.trace);
+    dot.rotation.x = -Math.PI / 2;
+    dot.position.set(qx - 0.26, top + 0.142, qz - 0.26);
+    group.add(dot);
+    for (let k = 0; k < 7; k++) {
+      const o = -0.3 + k * 0.1;
+      for (const s of [-1, 1]) {
+        box(0.04, 0.02, 0.06, MAT.lead, qx + o, top + 0.01, qz + s * 0.42);
+        box(0.06, 0.02, 0.04, MAT.lead, qx + s * 0.42, top + 0.01, qz + o);
+      }
+    }
+
+    // SOT-23 transistors for the auto-reset circuit
+    for (const [x, z] of [[0.1, (N - 1) * P - 1.15], [0.65, (N - 1) * P - 1.15]]) {
+      onTop(0.19, 0.1, 0.3, MAT.matte, x, z);
+      box(0.05, 0.03, 0.1, MAT.lead, x - 0.14, top + 0.015, z - 0.09);
+      box(0.05, 0.03, 0.1, MAT.lead, x - 0.14, top + 0.015, z + 0.09);
+      box(0.05, 0.03, 0.1, MAT.lead, x + 0.14, top + 0.015, z);
+    }
+
+    // 0805 chip capacitors (tan) and resistors (black), tinned ends
+    const chip = (x, z, body, turn) => {
+      const g = new THREE.Group();
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.1, 0.2), body);
+      b.position.y = 0.05;
+      g.add(b);
+      for (const s of [-1, 1]) {
+        const e = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.105, 0.205), MAT.lead);
+        e.position.set(s * 0.14, 0.0525, 0);
+        g.add(e);
+      }
+      g.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
+      g.position.set(x, top, z);
+      if (turn) g.rotation.y = Math.PI / 2;
+      group.add(g);
+    };
+    const cap = ESP_MAT.ceramic, res = MAT.matte;
+    const zU = (N - 1) * P;
+    [
+      [-1.15, 3.2, cap, true], [1.15, 3.2, cap, true],
+      [-1.2, zU - 1.6, cap, true], [-0.3, zU - 1.6, res, false], [0.3, zU - 1.6, res, false], [1.2, zU - 1.6, cap, true],
+      [-1.25, zU - 0.55, cap, true], [-0.1, zU - 0.55, res, true], [1.2, zU - 0.55, res, true],
+      [-1.2, zU + 0.15, cap, false], [0.05, zU + 0.12, res, false],
+    ].forEach(([x, z, m, t]) => chip(x, z, m, t));
+
+    // power (red) and GPIO2 (blue) LEDs, each with its own material so it can light
+    const ledMat = hex => new THREE.MeshPhysicalMaterial({
+      color: lin(hex).multiplyScalar(0.5), emissive: lin(hex), emissiveIntensity: 0,
+      roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.1, toneMapped: false,
+    });
+    const powerMat = ledMat(0xff2a1f), userMat = ledMat(0x2f7bff);
+    for (const [x, z, m] of [[-0.6, zU + 0.2, powerMat], [1.3, zU + 0.25, userMat]]) {
+      chip(x, z, MAT.white, false);
+      box(0.16, 0.04, 0.16, m, x, top + 0.12, z);
+    }
+    group.userData.setPowered = function (on) { powerMat.emissiveIntensity = on ? 1.4 : 0; };
+    group.userData.setLit = function (on, level) {
+      const k = Math.max(0.35, Math.min(1.4, level == null ? 1 : level));
+      userMat.emissiveIntensity = on ? 1.6 * k : 0;
+    };
+
+    group.updateMatrixWorld(true);
+    // header pins run along local +z, which is (−dz, 0, dx) in the world
+    const ux = (holeB.x - holeA.x) / span, uz = (holeB.z - holeA.z) / span;
+    const pins = [];
+    for (const base of [A, V3(holeB.x, 0, holeB.z)]) {
+      for (let i = 0; i < N; i++) pins.push(V3(base.x - uz * P * i, 0, base.z + ux * P * i));
+    }
+    return { group, pins };
+  }
+
+  // ─────────────────────────────────────────────────────────────
   //  JUMPER WIRE
   //
   //  Board ends plug in straight down: insulation stops just above the
@@ -694,6 +1002,7 @@
     if (type === 'buzzer')   built = buildBuzzer(holeA, holeB);
     if (type === 'button')   built = buildButton(holeA, holeB);
     if (type === 'battery')  built = buildBattery(0, 0);
+    if (type === 'esp32')    built = buildESP32(holeA, holeB);
     if (!built) return null;
     return ghostify(built.group, ok);
   }
@@ -730,6 +1039,7 @@
   App.buildBattery  = buildBattery;
   App.buildBuzzer   = buildBuzzer;
   App.buildButton   = buildButton;
+  App.buildESP32    = buildESP32;
   App.buildWire     = buildWire;
   App.buildPreview  = buildPreview;
   App.ghostify      = ghostify;
