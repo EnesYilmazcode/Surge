@@ -9,7 +9,7 @@
 
 (function (App) {
 
-  const { wait, easeOut, tween, orbit, contact, contactPart, placePart, placeJumper } = App.stage;
+  const { easeOut, tween, contact, contactPart, placePart, placeJumper } = App.stage;
 
   const FAR_SIDE = Math.PI;      // half a revolution across the whole page
   const RUN_AT = 0.76;           // progress at which Run lights the LED
@@ -36,8 +36,14 @@
     const wireRecs = [];
     let running = false;
 
-    // The board sits to the right of the homepage text, so shift the view left.
-    App.controls.target.x = App.camera.aspect > 1.2 ? -3.5 : 0;
+    // The camera circles the board's centre and looks at a point just left of
+    // it, so the board stays right of the homepage text at every angle.
+    const lookX = App.camera.aspect > 1.2 ? -3.5 : 0;
+    function frame(angle, radius, height) {
+      App.camera.position.set(radius * Math.sin(angle), height, radius * Math.cos(angle));
+      App.controls.target.set(lookX, 0, 0);
+      App.camera.lookAt(App.controls.target);
+    }
     App.controls.enabled = false;
     App.clearAll();
 
@@ -75,11 +81,11 @@
     tween(3400, k => {
       const e = easeOut(k);
       board.position.y = rest + 7 * (1 - e);
-      orbit(0.6 - 5.5 * (1 - e), 30, 16);
+      frame(0.6 - 5.5 * (1 - e), 24, 14);
     }).then(() => {
       App.addTicker(() => {
         shown = calm ? target : shown + (target - shown) * 0.12;
-        orbit(0.6 + FAR_SIDE * shown, 30 + 3 * shown, 16 + 4 * shown);
+        frame(0.6 + FAR_SIDE * shown, 24 + 3 * shown, 14 + 4 * shown);
         sync(shown);
       });
     });
