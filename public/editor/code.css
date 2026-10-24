@@ -64,19 +64,6 @@
 }
 .code-tab:hover { color: var(--code-ink); }
 .code-tab.on { color: var(--code-ink); background: var(--code-bg); border-top-color: var(--accent); }
-.code-tab-x {
-  width: 16px; height: 16px;
-  display: grid; place-items: center;
-  padding: 0;
-  border: 0; border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  font-size: 14px; line-height: 1;
-  cursor: pointer;
-  opacity: 0;
-}
-.code-tab:hover .code-tab-x, .code-tab.on .code-tab-x { opacity: 0.6; }
-.code-tab-x:hover { opacity: 1 !important; background: rgba(255,255,255,0.1); }
 .code-tab-input {
   width: 120px;
   padding: 1px 4px;
@@ -88,16 +75,6 @@
   outline: none;
   box-shadow: none;
 }
-.code-tab-add {
-  width: 34px;
-  display: grid; place-items: center;
-  border: 0;
-  background: transparent;
-  color: #8d94a0;
-  cursor: pointer;
-}
-.code-tab-add:hover { color: var(--code-ink); }
-
 .code-main { flex: 1; min-height: 0; display: flex; position: relative; }
 .code-gutter {
   width: 52px;

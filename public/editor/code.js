@@ -5,11 +5,12 @@
 //  font and padding so the caret lines up with the coloured text.
 //
 //  The editor holds several sketch files, one tab each. Every ESP32 on the
-//  board runs one of them, named in its values.sketch. The files are kept in
+//  board runs one of them, named in its values.sketch, and a file lives and
+//  dies with its ESP32: there is no way to add or delete one by hand. The files are kept in
 //  localStorage and travel inside circuit files.
 //
 //  Exports: App.setView, App.openSketch, App.getSketch, App.sketchFiles,
-//           App.setSketchFiles, App.claimSketch, App.addSketch, App.ensureSketch, App.dropSketch
+//           App.setSketchFiles, App.claimSketch, App.addSketch, App.ensureSketch, App.dropSketch, App.pruneSketches
 // ─────────────────────────────────────────────────────────────
 
 (function (App) {
@@ -125,16 +126,6 @@ void loop() {
         const label = document.createElement('span');
         label.textContent = file.name;
         tab.append(label);
-        const inUse = esp32s().some(c => sketchOf(c) === file.name);
-        if (!inUse && files.length > 1) {
-          const close = document.createElement('button');
-          close.className = 'code-tab-x';
-          close.title = 'Delete this file';
-          close.setAttribute('aria-label', 'Delete ' + file.name);
-          close.textContent = '×';
-          close.addEventListener('click', e => { e.stopPropagation(); remove(i); });
-          tab.append(close);
-        }
         tab.addEventListener('click', () => { if (i !== active) select(i); });
         tab.addEventListener('dblclick', () => rename(tab, label, i));
         tabList.append(tab);
@@ -322,6 +313,14 @@ void loop() {
       if (files[active] === file) select(active); else renderTabs();
     };
 
+    // Files exist only for ESP32s: drop any that no ESP32 runs, always leaving one
+    // to look at. Call it once a circuit's parts are on the board.
+    App.pruneSketches = function () {
+      const used = new Set(esp32s().map(sketchOf));
+      const keep = used.size ? null : files[0];
+      files.filter(f => !used.has(f.name) && f !== keep).forEach(f => App.dropSketch(f.name));
+    };
+
     // Delete a file by name, as when the ESP32 that ran it is deleted.
     App.dropSketch = function (name) {
       const i = files.findIndex(f => f.name === name);
@@ -348,12 +347,6 @@ void loop() {
 
     // The tabs show which files are in use, so redraw them when the board changes.
     App.refreshSketchTabs = () => { if (!view.hidden) renderTabs(); };
-
-    view.querySelector('.code-tab-add').addEventListener('click', () => {
-      App.addSketch();
-      select(files.length - 1);
-      input.focus();
-    });
 
     select(active);
   });

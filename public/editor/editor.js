@@ -776,6 +776,7 @@
     }
     if (data.id) state.circuitId = data.id;
 
+    if (App.pruneSketches) App.pruneSketches();
     App.setHint(`Opened "${data.name || 'circuit'}"`, 2000);
   };
 
@@ -1224,6 +1225,7 @@
   animate();
 
   refreshCounts();
+  if (App.pruneSketches) App.pruneSketches();   // files saved in the browser that no circuit uses
 
   // Auto-load circuit passed from dashboard via sessionStorage
   const _pending = sessionStorage.getItem('surge_load_circuit');
