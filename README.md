@@ -27,6 +27,12 @@ Open `http://127.0.0.1:5173`.
 - Editable component references and values
 - Live DC metrics, design-rule warnings, and animated simulation state
 - Local project state and responsive editor shell
+- Light editor panels and 3D workspace
+- Portable circuit files with validated import and export
+
+Use the folder icon to open a circuit file and the download icon to export the current design as `.surge.json`. Save stores the circuit in this browser. Opening a file loads it into the workspace; Save persists the imported design. Invalid files leave the current workspace intact.
+
+Run `npm test` to check circuit file round trips and invalid-file handling (Node.js 22.6 or newer).
 
 ## Team
 

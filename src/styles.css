@@ -168,3 +168,10 @@ button { color: inherit; }
 }
 
 button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; }
+
+.file-input { display: none; }
+.file-notice { position: absolute; z-index: 5; top: 62px; left: 16px; right: 16px; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid #acc7bf; border-radius: 8px; background: #ffffff; color: #263d39; box-shadow: 0 4px 16px #1b4c3c0d; font-size: 12px; line-height: 1.5; }
+.file-notice.error { border-color: #e4b4ae; background: #fff0ee; color: #a13229; }
+.file-notice button { margin-left: auto; flex-shrink: 0; border: 0; border-radius: 4px; background: transparent; font-size: 20px; cursor: pointer; }
+.top-actions { gap: 6px; }
+.top-actions .save-state { font-size: 9px; }

@@ -1,10 +1,11 @@
-import { Box, CheckCircle2, ChevronDown, CircleHelp, MousePointer2, Pause, Play, Plus, RotateCcw, Save, Search, Undo2, Redo2, ZoomIn } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Box, CheckCircle2, ChevronDown, CircleHelp, Download, FolderOpen, MousePointer2, Pause, Play, Plus, RotateCcw, Save, Search, Undo2, Redo2, ZoomIn } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
 import { planCircuit } from './agent/planner'
 import AgentPanel from './components/AgentPanel'
 import CircuitScene from './components/CircuitScene'
 import Inspector from './components/Inspector'
 import { COMPONENT_LIBRARY, createComponent, STARTER_DESIGN } from './data/library'
+import { MAX_PROJECT_BYTES, parseProject, projectFilename, serializeProject, validateDesign } from './data/project-file'
 import { simulateCircuit } from './engine/simulator'
 import type { CircuitComponent, CircuitDesign, CircuitLayer, ComponentKind } from './types/circuit'
 
@@ -13,7 +14,7 @@ const initialSteps = ['Parsed design requirements', 'Selected component topology
 function loadSavedDesign(): CircuitDesign {
   try {
     const saved = window.localStorage.getItem('surge:circuit')
-    return saved ? JSON.parse(saved) as CircuitDesign : STARTER_DESIGN
+    return saved ? validateDesign(JSON.parse(saved)) : STARTER_DESIGN
   } catch {
     return STARTER_DESIGN
   }
@@ -29,6 +30,9 @@ export default function App() {
   const [steps, setSteps] = useState(initialSteps)
   const [saved, setSaved] = useState(true)
   const [search, setSearch] = useState('')
+  const [fileNotice, setFileNotice] = useState<{ message: string; error: boolean } | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const agentRun = useRef(0)
 
   const selected = design.components.find((item) => item.id === selectedId) ?? null
   const result = useMemo(() => simulateCircuit(design), [design])
@@ -53,9 +57,12 @@ export default function App() {
   }
 
   const runAgent = (prompt: string) => {
+    if (isThinking) return
+    const run = ++agentRun.current
     setIsThinking(true)
     setSteps(['Interpreting your request', 'Selecting a topology'])
     window.setTimeout(() => {
+      if (run !== agentRun.current) return
       const plan = planCircuit(prompt)
       setDesign(plan.design)
       setSelectedId(plan.design.components.find((item) => item.kind === 'ic')?.id ?? plan.design.components[0]?.id ?? null)
@@ -67,8 +74,47 @@ export default function App() {
   }
 
   const saveDesign = () => {
-    window.localStorage.setItem('surge:circuit', JSON.stringify(design))
-    setSaved(true)
+    try {
+      window.localStorage.setItem('surge:circuit', JSON.stringify(design))
+      setSaved(true)
+      setFileNotice({ message: 'Circuit saved in this browser.', error: false })
+    } catch {
+      setFileNotice({ message: 'Browser storage is unavailable. Export a circuit file to keep your work.', error: true })
+    }
+  }
+
+  const exportProject = () => {
+    try {
+      const url = URL.createObjectURL(new Blob([serializeProject(design)], { type: 'application/json' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = projectFilename(design.name)
+      document.body.append(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setFileNotice({ message: 'Circuit file exported.', error: false })
+    } catch (error) {
+      setFileNotice({ message: error instanceof Error ? error.message : 'Unable to export circuit.', error: true })
+    }
+  }
+
+  const importProject = async (file: File) => {
+    try {
+      if (file.size > MAX_PROJECT_BYTES) throw new Error('Choose a circuit file smaller than 2 MB.')
+      const imported = parseProject(await file.text())
+      ++agentRun.current
+      setIsThinking(false)
+      setDesign(imported)
+      setSelectedId(imported.components[0]?.id ?? null)
+      setSimulating(false)
+      setSaved(false)
+      setSummary(`Opened ${imported.name || 'untitled circuit'} with ${imported.components.length} components and ${imported.wires.length} connections.`)
+      setSteps(['Imported circuit file', 'Validated components and connections'])
+      setFileNotice({ message: 'Circuit opened. Save to keep it in this browser.', error: false })
+    } catch (error) {
+      setFileNotice({ message: error instanceof Error ? error.message : 'Unable to open circuit.', error: true })
+    }
   }
 
   return <main className="app-shell">
@@ -79,7 +125,14 @@ export default function App() {
         <ChevronDown size={14} />
       </div>
       <div className="top-actions">
+        <input ref={fileInput} className="file-input" type="file" accept=".json,application/json" aria-label="Open circuit file" onChange={(event) => {
+          const file = event.currentTarget.files?.[0]
+          event.currentTarget.value = ''
+          if (file) void importProject(file)
+        }} />
         <span className={`save-state ${saved ? '' : 'unsaved'}`}><CheckCircle2 size={13} /> {saved ? 'Saved locally' : 'Unsaved changes'}</span>
+        <button className="icon-button" title="Open circuit file" aria-label="Open circuit file" onClick={() => fileInput.current?.click()}><FolderOpen size={17} /></button>
+        <button className="icon-button" title="Export circuit file" aria-label="Export circuit file" onClick={exportProject}><Download size={17} /></button>
         <button className="icon-button" title="Help"><CircleHelp size={17} /></button>
         <button className="save-button" onClick={saveDesign}><Save size={15} /> Save</button>
       </div>
@@ -102,6 +155,10 @@ export default function App() {
       </aside>
 
       <section className="viewport">
+        {fileNotice && <div className={`file-notice ${fileNotice.error ? 'error' : ''}`} role={fileNotice.error ? 'alert' : 'status'}>
+          <span>{fileNotice.message}</span>
+          <button aria-label="Dismiss notification" onClick={() => setFileNotice(null)}>×</button>
+        </div>}
         <div className="viewport-toolbar">
           <div className="tool-group"><button className="active"><MousePointer2 size={15} /></button><button><ZoomIn size={15} /></button><button><RotateCcw size={15} /></button></div>
           <span className="toolbar-divider" />
