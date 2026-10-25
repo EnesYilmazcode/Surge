@@ -258,7 +258,7 @@
   const ENTER_MS = 1100;
   const easeInOut = k => k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
   const listening = new AbortController();     // the homepage's pointer handlers
-  let title = null, breathe = null, limits = null;
+  let title = null, breathe = null, limits = null, frameHome = null;
 
   // Animate `prop` (a margin) from -size to 0, so the element slides in and
   // the layout makes room for it as it goes.
@@ -362,21 +362,52 @@
     title = fontData ? makeTitle(fontData, cx, boardBox.min.z - 2.4, groundY, length * 0.86) : null;
     if (title) whole.union(new THREE.Box3().setFromObject(title.group));
 
+    // Frame it from the front, aimed down the board's middle so the title, board and
+    // button stand symmetric, and far enough back that every part's corners fit.
+    // The button is nearest the camera, so it looks wider than it is: a framing that
+    // only measured the overall size cut it off at the left.
+    const corners = [bb.group, editor.group, ...App.state.components.map(c => c.group), ...(title ? [title.group] : [])]
+      .flatMap(obj => {
+        const b = new THREE.Box3().setFromObject(obj);
+        return [0, 1, 2, 3, 4, 5, 6, 7].map(k => new THREE.Vector3(
+          k & 1 ? b.max.x : b.min.x, k & 2 ? b.max.y : b.min.y, k & 4 ? b.max.z : b.min.z));
+      });
     const center = whole.getCenter(new THREE.Vector3());
-    const size = whole.getSize(new THREE.Vector3());
-
-    // Frame it from the front, with room either side.
-    const aspect = App.camera.aspect || 1.6;
-    const vfov = App.camera.fov * Math.PI / 180;
-    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
-    const halfW = size.x / 2 + 3, halfH = size.y / 2 + 4;
-    const dist = Math.max(halfW / Math.tan(hfov / 2), halfH / Math.tan(vfov / 2));
-    // Aim a little below the middle, so the composition sits higher in the frame.
-    const look = center.clone();
-    look.y -= dist * 0.07;
-    App.controls.target.copy(look);
-    App.camera.position.set(look.x, look.y + dist * 0.4, look.z + dist);
-    App.camera.lookAt(look);
+    frameHome = () => {
+      const cam = App.camera, dir = new THREE.Vector3(0, 0.4, 1);
+      const place = dist => {
+        // Aim a little below the middle, so the composition sits higher in the frame.
+        const look = new THREE.Vector3(cx, center.y - dist * 0.07, center.z);
+        cam.position.copy(look).addScaledVector(dir, dist);
+        cam.lookAt(look);
+        cam.updateMatrixWorld();
+        return look;
+      };
+      const fits = dist => {
+        place(dist);
+        return corners.every(p => {
+          const v = p.clone().project(cam);
+          return Math.abs(v.x) <= 0.92 && Math.abs(v.y) <= 0.86 && v.z < 1;
+        });
+      };
+      let near = 5, far = 400;
+      for (let i = 0; i < 40; i++) { const mid = (near + far) / 2; if (fits(mid)) far = mid; else near = mid; }
+      // In a narrow window the width sets the distance, which leaves room above and
+      // below: move the aim so the parts sit just above the middle of the frame.
+      let look = place(far);
+      const tan = Math.tan(cam.fov * Math.PI / 360);
+      for (let i = 0; i < 4; i++) {
+        const ys = corners.map(p => p.clone().project(cam).y);
+        const off = (Math.min(...ys) + Math.max(...ys)) / 2 - 0.08;
+        const shift = off * tan * far;
+        look.y += shift;
+        cam.position.y += shift;
+        cam.lookAt(look);
+        cam.updateMatrixWorld();
+      }
+      App.controls.target.copy(look);
+    };
+    frameHome();
     limits = { min: App.controls.minDistance, max: App.controls.maxDistance };   // the editor's, for later
     App.controls.minDistance = 6;
     App.controls.maxDistance = 60;
@@ -390,6 +421,8 @@
     capTarget = editor.restY;
     App.addTicker(capTick);
     const canvas = App.renderer.domElement, signal = listening.signal;
+    // A new window size changes the aspect, so frame the scene again until the editor opens.
+    window.addEventListener('resize', () => { if (!leaving) requestAnimationFrame(frameHome); }, { signal });
     canvas.addEventListener('pointerdown', e => {
       if (e.button !== 0 || !overButton(e)) return;
       canvas.setPointerCapture?.(e.pointerId);
