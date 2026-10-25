@@ -85,9 +85,9 @@ export async function clickHole(page, col, row) {
   await wait(600);
 }
 
-// The simulator's readout, as text.
+// The simulator's readout, as text, including the rows the collapsed panel hides.
 export function readout(page) {
-  return page.evaluate(() => (document.getElementById('sim-results')?.innerText || '').replace(/\s+/g, ' ').trim());
+  return page.evaluate(() => (document.getElementById('sim-results')?.textContent || '').replace(/\s+/g, ' ').trim());
 }
 
 // Run the circuit and report whether the LED turned on during a few samples.
