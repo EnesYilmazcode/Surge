@@ -5,8 +5,9 @@ import { createWorkbenchHandler } from '../../server/workbench-api.js'
 const EDITORS = ['https://surge-flow.web.app', 'https://surge-flow.firebaseapp.com']
 
 const workbench = createWorkbenchHandler({
-  apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
-  model: process.env.GEMINI_MODEL,
+  provider: 'anthropic',
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  model: process.env.ANTHROPIC_MODEL,
 })
 
 export default async function handler(request: IncomingMessage, response: ServerResponse) {
