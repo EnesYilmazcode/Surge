@@ -872,7 +872,7 @@
     }
   }
 
-  App.saveCircuit = function () {
+  function circuitFile() {
     const name = state.circuitName || 'Untitled';
 
     // Build a raw serializable state (cols/rows, not world coords)
@@ -906,6 +906,32 @@
 
     const safeName = name.replace(/[^\w\s\-]/g, '').trim() || 'circuit';
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    return { name, safeName, blob };
+  }
+
+  let sharing = false;
+  App.shareCircuit = async function () {
+    if (sharing) return;
+    sharing = true;
+    try {
+      const link = await WorkbenchShare.createLink({
+        version: 1,
+        name: state.circuitName || 'Untitled',
+        ...serializeBoard(),
+        files: App.sketchFiles ? App.sketchFiles() : undefined,
+      }, window.location.href);
+      if (await WorkbenchShare.copyLink(link)) {
+        App.setHint('Link copied!', 3000);
+      } else {
+        window.prompt('Copy this circuit link:', link);
+      }
+    } catch (error) {
+      App.setHint(error.message || 'Could not create a link. Try Download instead.', 4000);
+    } finally { sharing = false; }
+  };
+
+  App.saveCircuit = function () {
+    const { name, safeName, blob } = circuitFile();
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
@@ -1385,7 +1411,8 @@
   if (App.pruneSketches) App.pruneSketches();   // files saved in the browser that no circuit uses
 
   // Auto-load circuit passed from dashboard via sessionStorage
-  const _pending = sessionStorage.getItem('surge_load_circuit');
+  const _shared = !App.isHero && window.location?.hash?.startsWith('#circuit=');
+  const _pending = _shared ? null : sessionStorage.getItem('surge_load_circuit');
   if (_pending) {
     sessionStorage.removeItem('surge_load_circuit');
     try {
@@ -1404,7 +1431,15 @@
   }
 
   // Homepage links: app.html?demo opens the demo circuit straight away.
-  if (/[?&]demo\b/.test(window.location?.search ?? '') && !_pending) {
+  if (_shared) {
+    App.sharedCircuitReady = WorkbenchShare.readLink(window.location.hash).then(data => {
+      App.loadCircuitData(data);
+      clearHistory();
+      App.setHint('Shared circuit opened', 3000);
+    }).catch(error => App.setHint(error.message, 5000));
+  }
+
+  if (/[?&]demo\b/.test(window.location?.search ?? '') && !_pending && !_shared) {
     fetch('/editor/demo.surge').then(r => r.json()).then(data => {
       data.name = 'Demo';
       delete data.id;

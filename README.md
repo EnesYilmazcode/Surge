@@ -83,6 +83,7 @@ The circuit simulates live, and an ESP32 runs the Arduino sketch the assistant w
 - **Wires that look like wires**: smooth curves that arch over parts they would cross and rise out of a battery terminal.
 - **Code tab**: read and edit `sketch.ino` with syntax colors.
 - **Your work stays put**: local autosave, a saved-project browser, and `.surge` files to download and import.
+- **Share a circuit**: Share copies a link containing a compressed snapshot of the parts, wires and sketch files. Opening it creates an independent circuit in the recipient's editor. Links use the current site's address; use the hosted editor to share with other people. Very large circuits can be shared as `.surge` downloads instead.
 
 <p align="center">
   <img src="docs/media/button-counter.gif" alt="Top-down view of a breadboard with an ESP32 and a 7-segment display. A push button below the ESP32 is pressed three times, turning green on each press, and the display counts 0, 1, 2, 3." width="720">
