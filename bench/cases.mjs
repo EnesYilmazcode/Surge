@@ -124,7 +124,9 @@ export const CASES = [
       const rolls = digits.slice(1)
       const bad = rolls.find(d => !(d >= 1 && d <= 6))
       if (bad !== undefined) return { pass: false, why: `rolled ${rolls.join(' ')}` }
-      return new Set(rolls).size >= 3 ? { pass: true, why: `rolled ${rolls.join(' ')}` } : { pass: false, why: `not random enough: ${rolls.join(' ')}` }
+      // Twelve fair rolls show four or more faces about 98% of the time, and both odd and even ones
+      const fair = new Set(rolls).size >= 4 && rolls.some(d => d % 2) && rolls.some(d => d % 2 === 0)
+      return fair ? { pass: true, why: `rolled ${rolls.join(' ')}` } : { pass: false, why: `not random enough: ${rolls.join(' ')}` }
     },
   },
   {
