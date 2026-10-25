@@ -820,7 +820,7 @@
   //  in simulated time. A sketch reads a button at the moment it reads it, so a
   //  counter that counts presses keeps its count from one press to the next instead
   //  of starting over on every click.
-  const SESSION_SPAN = 5000;    // simulated ms a run covers past the current moment
+  const SESSION_SPAN = 10000;   // simulated ms a run covers past the current moment
   const SESSION_MAX  = 180000;  // past this, a long session replays its last run
   let _session = null;          // { t0, presses: Map(button -> [{ t, pressed }]) }
 
@@ -869,12 +869,12 @@
     };
   }
 
-  function playSketch(components, wires) {
+  function playSketch(components, wires, whole) {
     const token = ++_sketchToken;
     const boards = [];
     components.forEach((comp, ci) => { if (comp.type === 'esp32') boards.push({ comp, ci }); });
     const levels = gpioLevelsAt(components, wires, new Map());
-    const maxMs = Math.min(Math.ceil(sessionElapsed()) + SESSION_SPAN, SESSION_MAX);
+    const maxMs = whole ? SESSION_MAX : Math.min(Math.ceil(sessionElapsed()) + SESSION_SPAN, SESSION_MAX);
 
     // Each ESP32 runs the file it is tied to. It reads its pins at the simulated
     // moment of each read, so a button pressed during the session is seen.
@@ -888,18 +888,21 @@
       _sketchErrors = runs.filter(r => r.run.error).map(r => ({
         text: ((r.comp.values && r.comp.values.sketch) || 'sketch') + ': ' + r.run.error, cls: 'sim-err',
       }));
-      // Every sketch runs on the session clock. One that reads a pin also replays the
-      // presses, so it shows each button in the state it had at that moment.
+      // A sketch that reads a pin depends on the session, so it is worked out a few
+      // seconds at a time and replays the presses. One that never reads a pin does the
+      // same thing every run, so it is worked out for the whole session at once: played
+      // from a short run, a counter that steps once a second never passed 4.
       const sessional = runs.some(({ run }) => !run.error && run.reads > 0);
+      const reachedEnd = runs.every(({ run }) => run.error || run.ended === 'max');
+      if (!sessional && !whole && reachedEnd && maxMs < SESSION_MAX) { playSketch(components, wires, true); return; }
       let last = null;
       const tick = () => {
         const elapsed = sessionElapsed();
         // Each button shows the state it had at this moment
         if (sessional) components.forEach(c => { if (c.type === 'button') c.pressed = pressedAt(c, elapsed); });
-        // Extend a run that is nearly used up, from the current moment. A sketch that
-        // never reads a pin needs this too: a counter that steps once a second would
-        // otherwise loop its first few seconds and never pass 4.
-        if (runs.some(({ run }) => !run.error && run.duration < SESSION_MAX && elapsed > run.duration - 1000)) {
+        // Extend a run that is nearly used up, from the current moment. A run that a
+        // limit cut short would stop at the same place again, so it is not rerun.
+        if (sessional && reachedEnd && runs.some(({ run }) => !run.error && run.duration < SESSION_MAX && elapsed > run.duration - 1000)) {
           stopPlayback();
           playSketch(components, wires);
           return;
@@ -907,7 +910,8 @@
         const pins = {};
         runs.forEach(({ ci, run }) => {
           if (run.error) { pins[ci] = {}; return; }
-          const at = sessional && elapsed <= run.duration ? elapsed : (run.duration ? elapsed % run.duration : 0);
+          // Past the end of its run, a press counter holds its last state, and anything else loops.
+          const at = sessional ? Math.min(elapsed, run.duration) : (run.duration ? elapsed % run.duration : 0);
           pins[ci] = run.at(at);
         });
         const key = JSON.stringify(pins);

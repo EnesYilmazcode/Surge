@@ -67,7 +67,7 @@ test('a part picked from the library lands on the hole under the pointer', async
   await page.close();
 });
 
-test('the 7-segment display places from the library and is marked as not simulated', async () => {
+test('the 7-segment display places from the library and is simulated', async () => {
   const page = await openEditor(browser);
   await page.click('.comp-item[data-type="seg7"]');
   await wait(200);
@@ -76,7 +76,7 @@ test('the 7-segment display places from the library and is marked as not simulat
   assert.deepEqual(types, ['seg7']);
   await page.evaluate(() => App.runSimulation());
   await wait(800);
-  assert.match(await readout(page), /7-segment display: placed on the board, not simulated yet/);
+  assert.doesNotMatch(await readout(page), /not simulated yet/);
   await page.close();
 });
 
@@ -265,3 +265,53 @@ test('the chat places an ESP32 with its sketch, and wires a named pin to a hole'
   assert.deepEqual(page.errors, []);
   await page.close();
 });
+
+// A display wired as the chat lays it out: segments a to g on D13 D12 D14 D27 D26 D25 D33.
+const SEG7_LAYOUT = [
+  { tool: 'place_seg7', holeA: 'e20' },
+  ...[['a20', 'a27'], ['b21', 'b28'], ['c23', 'c30'], ['g24', 'g31'], ['h23', 'h30'], ['i21', 'i28'], ['j20', 'j27']]
+    .map(([holeA, holeB]) => ({ tool: 'place_resistor', holeA, holeB, resistance: 330 })),
+  ...[['D26', 'e27'], ['D27', 'e28'], ['D14', 'e30'], ['D12', 'f31'], ['D13', 'f30'], ['D25', 'f28'], ['D33', 'f27'], ['GND', 'a22']]
+    .map(([pin, to]) => ({ tool: 'connect_pin', pin: 'esp32_0_' + pin, to, color: 'green' })),
+];
+const SHOW_DIGIT = `const int segs[] = {13, 12, 14, 27, 26, 25, 33};
+const byte digits[] = {0x3F,0x06,0x5B,0x4F,0x66,0x6D,0x7D,0x07,0x7F,0x6F};
+void show(int d) { for (int i = 0; i < 7; i++) digitalWrite(segs[i], (digits[d] >> i) & 1); }
+`;
+const COUNTERS = {
+  'a for loop with delay()': SHOW_DIGIT + `void setup() { for (int i = 0; i < 7; i++) pinMode(segs[i], OUTPUT); }
+void loop() { for (int d = 0; d <= 9; d++) { show(d); delay(1000); } }`,
+  'a static counter in loop()': SHOW_DIGIT + `void setup() { for (int i = 0; i < 7; i++) pinMode(segs[i], OUTPUT); }
+void loop() { static int n = 0; show(n); delay(1000); n = (n + 1) % 10; }`,
+  'millis() with no delay()': SHOW_DIGIT + `unsigned long last = 0; int n = 0;
+void setup() { for (int i = 0; i < 7; i++) pinMode(segs[i], OUTPUT); show(0); }
+void loop() { if (millis() - last >= 1000) { last = millis(); n = (n + 1) % 10; show(n); } }`,
+};
+
+for (const [name, sketch] of Object.entries(COUNTERS)) {
+  test(`a 0 to 9 counter written with ${name} counts all the way to 9 on the running display`, async () => {
+    const page = await openEditor(browser);
+    await page.evaluate((layout, code) => {
+      window.surgePreviewActions([{ tool: 'place_esp32', holeA: 'i1', holeB: 'b1', code }, ...layout]);
+      window.surgeAcceptChanges();
+    }, SEG7_LAYOUT, sketch);
+    await wait(1500);
+    await page.evaluate(() => {
+      window.__shown = [];
+      const display = App.state.components.find(c => c.type === 'seg7').group.userData;
+      const set = display.setSegments;
+      display.setSegments = lit => { window.__shown.push(Object.keys(lit || {}).sort().join('')); return set(lit); };
+      App.runSimulation();
+    });
+    await wait(12500);
+    const DIGIT = { abcdef: 0, bc: 1, abdeg: 2, abcdg: 3, bcfg: 4, acdfg: 5, acdefg: 6, abc: 7, abcdefg: 8, abcdfg: 9 };
+    const digits = [];
+    for (const s of await page.evaluate(() => window.__shown)) {
+      const d = DIGIT[s];
+      if (d !== undefined && digits[digits.length - 1] !== d) digits.push(d);
+    }
+    assert.deepEqual(digits.slice(0, 11), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0]);
+    assert.deepEqual(page.errors, []);
+    await page.close();
+  });
+}
