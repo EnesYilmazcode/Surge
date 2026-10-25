@@ -408,6 +408,13 @@ canvas {
   margin-bottom: 6px;
   border-bottom: 1px solid var(--glass-line);
 }
+.sim-head { cursor: pointer; user-select: none; }
+#sim-results [hidden] { display: none !important; }
+.sim-toggle { margin-left: auto; font: 500 11px 'Space Grotesk', sans-serif; text-transform: none; letter-spacing: 0; opacity: 0.7; }
+.sim-head:hover .sim-toggle { opacity: 1; }
+#sim-results.sim-collapsed { width: auto; min-width: 150px; max-width: 260px; padding: 9px 12px; }
+#sim-results.sim-collapsed .sim-head { padding-bottom: 0; margin-bottom: 0; border-bottom: 0; }
+#sim-results.sim-collapsed .sim-problem:not([hidden]) { margin-top: 6px; }
 .sim-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 0 rgba(34,197,94,0.6); animation: sim-pulse 1.6s infinite; }
 @keyframes sim-pulse { 0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.55); } 70% { box-shadow: 0 0 0 7px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
 .sim-row {

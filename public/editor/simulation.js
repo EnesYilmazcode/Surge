@@ -656,12 +656,28 @@
       `${value ? `<span class="sim-value">${value}</span>` : ''}</div>${gauge}`;
   }
 
+  // The readout starts as a small pill. Errors (a short, a sketch error, a part over
+  // its rating) always show; the full list opens on click and the choice is remembered.
+  let _resultsOpen = false;
+  try { _resultsOpen = localStorage.getItem('surge_sim_details') === '1'; } catch { /* storage off */ }
+
   function showResults(lines) {
     let box = document.getElementById('sim-results');
     if (!box) {
       box = document.createElement('div');
       box.id = 'sim-results';
       document.getElementById('canvas-wrap').appendChild(box);
+      box.addEventListener('click', e => {
+        if (!e.target.closest('.sim-head')) return;
+        _resultsOpen = !_resultsOpen;
+        try { localStorage.setItem('surge_sim_details', _resultsOpen ? '1' : '0'); } catch { /* storage off */ }
+        box.classList.toggle('sim-collapsed', !_resultsOpen);
+        const head = box.querySelector('.sim-toggle');
+        if (head) head.textContent = _resultsOpen ? 'Hide' : 'Details';
+        box.querySelectorAll('.sim-row, .sim-gauge').forEach(el => {
+          el.hidden = !_resultsOpen && !el.classList.contains('sim-problem');
+        });
+      });
     }
     // The panel draws its own status marks, so emoji come out of the text.
     const clean = t => String(t).replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B55}\u{FE0F}]\s*/gu, '').trim();
@@ -673,7 +689,14 @@
       .map(l => ({ ...l, text: clean(l.text)
         .replace(/: CLOSED, current flowing$/, ': pressed')
         .replace(/: OPEN, click it to press$/, ': click it to press') }));
-    box.innerHTML = '<div class="sim-head"><span class="sim-dot"></span>Running</div>' + shown.map(resultRow).join('');
+    box.innerHTML = '<div class="sim-head" role="button" tabindex="0"><span class="sim-dot"></span>Running'
+      + '<span class="sim-toggle">' + (_resultsOpen ? 'Hide' : 'Details') + '</span></div>' + shown.map(resultRow).join('');
+    box.classList.toggle('sim-collapsed', !_resultsOpen);
+    box.querySelectorAll('.sim-row, .sim-gauge').forEach(el => {
+      const problem = /sim-err/.test(el.className);
+      if (problem) el.classList.add('sim-problem');
+      el.hidden = !_resultsOpen && !problem;
+    });
     box.style.display = 'block';
     document.body.classList.add('sim-open');
   }
@@ -700,17 +723,27 @@
       mouseNDC.y = -((e.clientY - r.top)  / r.height) * 2 + 1;
       raycaster.setFromCamera(mouseNDC, App.camera);
 
-      const capMeshes = [];
-      App.state.components.forEach(c => {
-        if (c.type === 'button' && c.capMesh) capMeshes.push(c.capMesh);
-      });
-      if (!capMeshes.length) return;
+      const buttons = App.state.components.filter(c => c.type === 'button' && c.group);
+      if (!buttons.length) return;
 
-      const hits = raycaster.intersectObjects(capMeshes, false);
-      if (!hits.length) return;
-
-      const cap  = hits[0].object;
-      const comp = cap.userData.ownerComp;
+      // The whole button counts, not just its small round cap, which far from the
+      // camera is only a few pixels wide.
+      let comp = null;
+      const hits = raycaster.intersectObjects(buttons.map(c => c.group), true);
+      if (hits.length) {
+        for (let o = hits[0].object; o && !comp; o = o.parent) comp = buttons.find(c => c.group === o) || null;
+      }
+      // A click just beside a button still presses it: the nearest cap within 28 px.
+      if (!comp) {
+        let best = 28;
+        const v = new THREE.Vector3();
+        buttons.forEach(c => {
+          if (!c.capMesh) return;
+          c.capMesh.getWorldPosition(v).project(App.camera);
+          const d = Math.hypot(r.left + (v.x + 1) / 2 * r.width - e.clientX, r.top + (1 - v.y) / 2 * r.height - e.clientY);
+          if (d < best) { best = d; comp = c; }
+        });
+      }
       if (comp) {
         App.toggleButton(comp);   // animate cap + flip comp.pressed
         App.runSimulation();      // re-evaluate circuit with new button state
