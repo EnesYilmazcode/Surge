@@ -274,7 +274,6 @@
     group.traverse(o => {
       if (!o.isMesh || !o.geometry) return;
       if (o.geometry.type === 'TubeGeometry') return;           // leads and wires
-      if (o.userData.accessory) return;                         // the ESP32's USB supply
       o.geometry.computeBoundingBox();
       box.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld));
     });
@@ -285,6 +284,49 @@
   function placedBox(group) {
     return group.userData._bodyBox || (group.userData._bodyBox = bodyBox(group, new THREE.Box3()));
   }
+  // The parts a jumper from start to end could pass over, for wire-route.js. A part
+  // that owns the hole an end plugs into is left out, since the wire starts or ends
+  // on it. Nearness to the body does not count: a display's body overhangs its pins.
+  App.wireObstacles = function (start, end) {
+    const onHole = (p, hole) => Math.hypot(p.x - hole.world.x, p.z - hole.world.z) < 0.12;
+    const within = (p, b) => p.x >= b.min.x && p.x <= b.max.x && p.z >= b.min.z && p.z <= b.max.z;
+    const out = [];
+    for (const c of state.components) {
+      if (!c.group) continue;
+      const b = placedBox(c.group);
+      if (c.holeRefs) {
+        const holes = c.holeRefs.map(h => state.breadboard.getHole(h.col, h.row)).filter(Boolean);
+        if (holes.some(h => onHole(start, h) || onHole(end, h))) continue;
+      } else if (within(start, b) || within(end, b)) {
+        continue;   // an off-board part, such as a battery, that a wire leaves from its own terminal
+      }
+      out.push({ min: { x: b.min.x, z: b.min.z }, max: { x: b.max.x, z: b.max.z }, top: b.max.y });
+    }
+    return out;
+  };
+  // What a jumper's route depends on: the parts it runs past, and where they are.
+  App.wireRouteKey = function (start, end) {
+    return App.wireObstacles(start, end)
+      .map(o => [o.min.x, o.min.z, o.max.x, o.max.z, o.top].map(v => v.toFixed(3)).join(','))
+      .join('|');
+  };
+  // Rebuild any jumper whose parts changed: one laid before a part was placed arches
+  // over it, and one that no longer runs past a part drops back to its ordinary arc.
+  App.rerouteWires = function () {
+    for (const w of state.wires) {
+      const key = App.wireRouteKey(w.startWorld, w.endWorld);
+      if (w.routeKey === key) continue;
+      const hex = w.group.userData.color;
+      const fresh = App.buildWire(w.startWorld, w.endWorld, hex);
+      fresh.userData.color = hex;
+      if (state.selected?.item === w) App.deselect();
+      App.scene.remove(w.group);
+      App.disposeGroup(w.group);
+      App.scene.add(fresh);
+      w.group = fresh;
+      w.routeKey = key;
+    }
+  };
   App.overlapsPart = function (type, holeA, holeB) {
     const build = { resistor: App.buildResistor, led: App.buildLED, buzzer: App.buildBuzzer, button: App.buildButton, esp32: App.buildESP32 }[type];
     if (!build) return false;
@@ -658,6 +700,7 @@
 
     state.wires.push({
       group:        wireGroup,
+      routeKey:     App.wireRouteKey(startWorld, endWorld),
       startWorld,   endWorld,
       startHole,    endHole,          // breadboard hole refs (null for off-board pins)
       startComp:    sPm?.userData.ownerComp  ?? null,
@@ -1306,6 +1349,7 @@
   }
 
   function refreshCounts() {
+    App.rerouteWires();   // a part placed or removed changes which jumpers must arch
     const cc = document.getElementById('comp-count');
     const wc = document.getElementById('wire-count');
     if (cc) cc.textContent = state.components.length;

@@ -13,9 +13,8 @@
     battery:  () => App.buildBattery(0, 0).group,
     buzzer:   () => App.buildBuzzer({ x: -0.4, z: 0 }, { x: 0.4, z: 0 }).group,
     button:   () => App.buildButton({ x: -0.6, z: 0 }, { x: 0.6, z: 0 }).group,
-    esp32:    () => {   // the board alone: the USB supply is not part of the icon
+    esp32:    () => {
       const g = App.buildESP32({ x: -1.75, z: 0 }, { x: 1.75, z: 0 }).group;
-      g.children = g.children.filter(c => !c.userData.accessory);
       return g;
     },
     seg7:          () => {

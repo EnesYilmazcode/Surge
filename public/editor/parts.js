@@ -716,37 +716,6 @@
     return _canMark;
   }
 
-  // ─────────────────────────────────────────────────────────────
-  //  The ESP32's USB cable: plugged into the micro-USB port, its other end
-  //  lying loose on the bench and connected to nothing. It is flagged as an
-  //  accessory, so it stays out of the board's footprint.
-  // ─────────────────────────────────────────────────────────────
-  const BENCH_Y = -0.385;                                  // the bench, under the 0.38 breadboard
-  const CABLE_LEN = 6;                                     // units from the port to the loose plug
-  const CABLE_MAT = new THREE.MeshPhysicalMaterial({ color: lin(0x1d1e22), roughness: 0.55, metalness: 0, clearcoat: 0.3 });
-  CABLE_MAT.userData.shared = true;
-
-  function buildUsbCable(port) {
-    const g = new THREE.Group();
-    const restY = BENCH_Y + 0.055;                         // the cable's radius above the bench
-    const end = V3(0, restY, port.z + CABLE_LEN);
-    const curve = new THREE.CubicBezierCurve3(
-      port.clone(), V3(0, port.y - 0.2, port.z + 2.2), V3(0, restY, end.z - 2.6), end,
-    );
-    const cable = new THREE.Mesh(new THREE.TubeGeometry(curve, 48, 0.055, 10, false), CABLE_MAT);
-    cable.castShadow = true;
-    cable.userData.accessory = true;
-    g.add(cable);
-
-    // The plug, lying where the cable ends
-    const plug = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.36, 0.9), MAT.steel);
-    plug.position.set(0, BENCH_Y + 0.18, end.z + 0.3);
-    plug.castShadow = plug.receiveShadow = true;
-    plug.userData.accessory = true;
-    g.add(plug);
-    return g;
-  }
-
   function buildESP32(holeA, holeB) {
     const { group, span, A } = frame(holeA, holeB);
     const { N, P, SPACER, T, ANT, USB, EDGE } = ESP;
@@ -944,9 +913,6 @@
     for (const sx of [-1, 1]) for (let i = 0; i < N; i++) pinTops.push(V3(sx * span / 2, top + 0.1, i * P));
     group.userData.pinTops = pinTops;
     group.userData.usbPort = V3(0, top + UH / 2, zMax + 0.1);
-    const supply = buildUsbCable(group.userData.usbPort);
-    supply.userData.accessory = true;
-    group.add(supply);
 
     group.updateMatrixWorld(true);
     // header pins run along local +z, which is (−dz, 0, dx) in the world
@@ -985,10 +951,12 @@
     const lift = 0.3 + Math.min(flat * 0.16, 2.2);
     const top = Math.max(s0.y, e0.y) + lift;
     const toward = V3(end.x - start.x, 0, end.z - start.z).normalize().multiplyScalar(Math.min(0.35, flat * 0.2));
+    // A run that crosses a part arches over it; any other wire keeps its ordinary arc.
+    const raised = App.WireRoute && App.wireObstacles ? App.WireRoute.route(s0, e0, App.wireObstacles(start, end)) : null;
     const curve = new THREE.CubicBezierCurve3(
       s0,
-      V3(s0.x + toward.x, top, s0.z + toward.z),
-      V3(e0.x - toward.x, top, e0.z - toward.z),
+      raised ? V3(raised.p1.x, raised.p1.y, raised.p1.z) : V3(s0.x + toward.x, top, s0.z + toward.z),
+      raised ? V3(raised.p2.x, raised.p2.y, raised.p2.z) : V3(e0.x - toward.x, top, e0.z - toward.z),
       e0,
     );
     const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 64, R, 10, false), mat);
