@@ -13,6 +13,7 @@ export interface SketchRun {
   duration: number                   // virtual milliseconds that were run
   serial: string                     // everything the sketch printed
   reads: number                      // how many times it read a pin, so whether its result depends on inputs
+  ended: 'max' | 'events' | 'slow' | 'done'  // reached maxMs, too many pin changes, out of interpreter time, or returned
   error?: string
 }
 
@@ -42,6 +43,57 @@ const SHIM_LINES = SHIM.split('\n').length - 1
 const STOP = '__surge_stop__'
 // Simulated time one digitalRead takes, in ms. A polling loop moves the clock by this much per read.
 const READ_MS = 20
+// Simulated time one millis() or micros() call takes. A loop timed by millis() alone moves forward by this.
+const CLOCK_MS = 20
+// A run that hits the interpreter's time limit keeps what it worked out, if it got this far.
+const MIN_PARTIAL_MS = 2000
+
+// JSCPP starts a function's static variables over on every call, so a counter kept
+// in `static int n` never gets past its first value. Each one becomes a global with
+// a name of its own, renamed inside its function.
+const STATIC_DECL = /\bstatic\s+((?:unsigned\s+|signed\s+)?(?:long\s+long|long|int|short|char|bool|boolean|byte|float|double|u?int(?:8|16|32)_t))\s+(\w+)\s*(?:=\s*([^;,{}]+))?;/g
+function hoistStatics(source: string): { text: string; globals: string } {
+  const globals: string[] = []
+  let out = ''
+  let depth = 0
+  let start = -1          // where the current top-level body began in `source`
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i]
+    if (c === '"' || c === "'") {   // skip a string or char literal
+      let j = i + 1
+      while (j < source.length && source[j] !== c && source[j] !== '\n') j += source[j] === '\\' ? 2 : 1
+      if (depth === 0) out += source.slice(i, j + 1)
+      i = j
+      continue
+    }
+    if (c === '/' && (source[i + 1] === '/' || source[i + 1] === '*')) {   // skip a comment
+      const end = source[i + 1] === '/' ? source.indexOf('\n', i) : source.indexOf('*/', i + 2) + 1
+      const j = end <= 0 ? source.length - 1 : end - (source[i + 1] === '/' ? 1 : 0)
+      if (depth === 0) out += source.slice(i, j + 1)
+      i = j
+      continue
+    }
+    if (c === '{') { if (depth++ === 0) { start = i; out += c } continue }
+    if (c === '}' && depth > 0 && --depth === 0) {
+      let fn = source.slice(start + 1, i)
+      const renames: Array<[string, string]> = []
+      // Only a literal start value is hoisted; anything else could name something declared later.
+      fn = fn.replace(STATIC_DECL, (decl, type, name, init) => {
+        if (init !== undefined && !/^\s*(?:-?[\d.]+[uUlLfF]*|true|false|HIGH|LOW|'(?:\\.|[^'])')\s*$/.test(init)) return decl
+        const global = `__static_${globals.length}_${name}`
+        globals.push(`${type} ${global} = ${init !== undefined ? init.trim() : '0'};`)
+        renames.push([name, global])
+        return ''
+      })
+      for (const [name, global] of renames) fn = fn.replace(new RegExp(`\\b${name}\\b`, 'g'), global)
+      out += fn + c
+      continue
+    }
+    if (depth === 0) out += c
+  }
+  if (depth > 0) return { text: source, globals: '' }   // unbalanced braces: leave it for the parser to report
+  return { text: out, globals: globals.join(' ') }
+}
 
 export function runSketch(sketch: string, options: SketchOptions = {}): SketchRun {
   const maxMs = options.maxMs ?? 10000
@@ -52,22 +104,25 @@ export function runSketch(sketch: string, options: SketchOptions = {}): SketchRu
   let now = 0
   let seed = 12345
   let reads = 0
+  let ended: SketchRun['ended'] = 'done'
 
   const record = (pin: number, level: 0 | 1) => {
     if (levels.get(pin) === level) return
     levels.set(pin, level)
     events.push({ t: now, pin, level })
-    if (events.length > 20000) throw new Error(STOP)
+    if (events.length > 20000) { ended = 'events'; throw new Error(STOP) }
   }
   const wait = (ms: number) => {
     now += ms
-    if (now > maxMs) throw new Error(STOP)
+    if (now > maxMs) { ended = 'max'; throw new Error(STOP) }
   }
 
   // Serial.begin( -> Serial_begin(, and so on. Comments and strings are left alone.
   const body = sketch.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\\n])*"|\bSerial\.(begin|print|println)\s*\(/g,
     (m, call) => call ? `Serial_${call}(` : m)
-  const code = SHIM + body + '\nint main() { setup(); while (true) { loop(); } return 0; }\n'
+  const { text, globals } = hoistStatics(body)
+  // The hoisted globals share the shim's last line, so error line numbers stay right.
+  const code = SHIM.slice(0, -1) + ' ' + globals + '\n' + text + '\nint main() { setup(); while (true) { loop(); } return 0; }\n'
 
   const config = {
     maxTimeout: 1500,
@@ -103,8 +158,9 @@ export function runSketch(sketch: string, options: SketchOptions = {}): SketchRu
           def('analogRead', [int], int, (r: any) => r.val(int, 0))
           def('delay', [int], none, (_r: any, _t: any, ms: any) => wait(Math.max(0, ms.v)))
           def('delayMicroseconds', [int], none, (_r: any, _t: any, us: any) => wait(Math.max(0, us.v) / 1000))
-          def('millis', [], ulong, (r: any) => r.val(ulong, Math.floor(now)))
-          def('micros', [], ulong, (r: any) => r.val(ulong, Math.floor(now * 1000)))
+          // Reading the clock takes a moment too, so a loop that waits on millis() moves forward.
+          def('millis', [], ulong, (r: any) => { wait(CLOCK_MS); return r.val(ulong, Math.floor(now)) })
+          def('micros', [], ulong, (r: any) => { wait(CLOCK_MS); return r.val(ulong, Math.floor(now * 1000)) })
           def('random', [int], int, (r: any, _t: any, max: any) => {
             seed = (seed * 1103515245 + 12345) & 0x7fffffff
             return r.val(int, max.v > 0 ? seed % max.v : 0)
@@ -121,7 +177,7 @@ export function runSketch(sketch: string, options: SketchOptions = {}): SketchRu
     },
   }
 
-  const finish = (error?: string): SketchRun => ({ events, duration: Math.min(now, maxMs), serial, reads, ...(error ? { error } : {}) })
+  const finish = (error?: string): SketchRun => ({ events, duration: Math.min(now, maxMs), serial, reads, ended, ...(error ? { error } : {}) })
 
   let JSCPP: { run(code: string, input: string, config?: Record<string, unknown>): number }
   try {
@@ -131,6 +187,8 @@ export function runSketch(sketch: string, options: SketchOptions = {}): SketchRu
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     if (message.includes(STOP)) return finish()
+    // Out of interpreter time after a good stretch: keep what it worked out.
+    if (/time limit|timeout|timed out/i.test(message) && now >= MIN_PARTIAL_MS) { ended = 'slow'; return finish() }
     return finish(describe(message, sketch))
   }
 }
