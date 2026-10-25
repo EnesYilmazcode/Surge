@@ -43,11 +43,11 @@ test('the big button on the homepage opens the editor', async () => {
   await page.close();
 });
 
-test('the homepage names the product and shows the mark', async () => {
+test('the homepage names the product for screen readers', async () => {
   const page = await browser.newPage();
   await page.setViewport({ width: 1440, height: 900 });
   await page.goto(`${BASE}/`, { waitUntil: 'networkidle0', timeout: 60000 });
-  const title = await page.$eval('.hero-title', el => el.textContent.trim());
-  assert.equal(title, 'Surge');
+  const heading = await page.$eval('h1', el => el.textContent.trim());
+  assert.equal(heading, 'Surge');
   await page.close();
 });
