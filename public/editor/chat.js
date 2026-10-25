@@ -308,7 +308,7 @@
       } else if (a.tool === 'place_battery') {
         const p = App.batterySlot(batteries);
         const g = App.buildPreview('battery', null, null, true);
-        g.position.set(p.x, 0, p.z);
+        g.position.set(p.x, App.BENCH_Y, p.z);
         ghosts.push(g);
         batPins['battery_' + batteries] = App.batteryPinsAt(p.x, p.z);
         batteries++;

@@ -21,7 +21,8 @@
 })(typeof window !== 'undefined' ? window : null, function () {
 
   const CLEARANCE = 0.12;   // air between a wire and the top of a part it passes over
-  const CEILING   = 3.2;    // the highest a wire may arch, in board units
+  const CEILING   = 3.2;    // the highest a wire may arch above the board, in board units
+  const HEADROOM  = 1.5;    // and how far it may rise above its higher end, for ends up on a tall part
   const MIN_REACH = 0.02;   // the shortest horizontal reach of a control point: a near-vertical drop
   const MAX_REACH = 0.4;    // the longest, as a fraction of the run
   const STEP      = 0.02;   // sampling step along the run
@@ -80,11 +81,12 @@
 
     // The lowest control height that clears everything, by bisection
     const floor = Math.max(start.y, end.y) + 0.05;
-    if (!clears(CEILING)) return { ...controls(CEILING), clear: false };
-    let lo = floor, hi = CEILING;
+    const ceiling = Math.max(CEILING, Math.max(start.y, end.y) + HEADROOM);
+    if (!clears(ceiling)) return { ...controls(ceiling), clear: false };
+    let lo = floor, hi = ceiling;
     if (clears(lo)) hi = lo;
     else for (let i = 0; i < 24; i++) { const mid = (lo + hi) / 2; if (clears(mid)) hi = mid; else lo = mid; }
-    return { ...controls(Math.min(CEILING, hi + MARGIN)), clear: true };
+    return { ...controls(Math.min(ceiling, hi + MARGIN)), clear: true };
   }
 
   return { route, bezier, CLEARANCE, CEILING };

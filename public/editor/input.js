@@ -111,7 +111,7 @@
         batteryGhost = App.buildPreview('battery', null, null, true);
         scene.add(batteryGhost);
       }
-      batteryGhost.position.set(x, 0, z);
+      batteryGhost.position.set(x, App.BENCH_Y, z);
       batteryGhost.visible = true;
     }
     function hideBatteryGhost() { if (batteryGhost) batteryGhost.visible = false; }

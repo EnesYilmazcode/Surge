@@ -298,7 +298,13 @@
         const holes = c.holeRefs.map(h => state.breadboard.getHole(h.col, h.row)).filter(Boolean);
         if (holes.some(h => onHole(start, h) || onHole(end, h))) continue;
       } else if (within(start, b) || within(end, b)) {
-        continue;   // an off-board part, such as a battery, that a wire leaves from its own terminal
+        // An off-board part, such as a battery, that the wire leaves from a terminal on top.
+        // Over the part, the wire must stay at the terminal's height, so it rises out of the
+        // terminal instead of dropping through the body.
+        const terminal = within(start, b) ? start : end;
+        const gap = App.WireRoute ? App.WireRoute.CLEARANCE : 0.12;
+        out.push({ min: { x: b.min.x, z: b.min.z }, max: { x: b.max.x, z: b.max.z }, top: terminal.y - gap - 0.01 });
+        continue;
       }
       out.push({ min: { x: b.min.x, z: b.min.z }, max: { x: b.max.x, z: b.max.z }, top: b.max.y });
     }

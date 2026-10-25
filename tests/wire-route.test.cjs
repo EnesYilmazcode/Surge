@@ -110,3 +110,14 @@ test('a run along one axis stays on that axis', () => {
   const r = Route.route(at(0, 0), at(3, 0), [part(1, 2, -0.5, 0.5, 1.45)]);
   for (const p of curve(at(0, 0), at(3, 0), r)) assert.ok(Math.abs(p.z) < 1e-9);
 });
+
+test('a wire leaving a terminal on top of a tall part rises out of it, not down through the part', () => {
+  // A battery 4 units tall, with the wire starting on its terminal at the top
+  const start = at(0, 0, 3.9), end = at(4, 0, 0.18);
+  const battery = part(-1.3, 1.3, -0.85, 0.85, 3.9 - Route.CLEARANCE - 0.01);
+  const r = Route.route(start, end, [battery]);
+  assert.ok(r && r.clear, 'the wire clears the battery');
+  for (const p of curve(start, end, r)) {
+    if (inside(p, battery)) assert.ok(p.y >= 3.9 - 0.011, `${p.y.toFixed(3)} over the battery at x=${p.x.toFixed(2)}`);
+  }
+});

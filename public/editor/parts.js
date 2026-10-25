@@ -416,10 +416,13 @@
 
   const BAT = { W: 2.6, D: 1.7, H: 4.3, TERM: 0.62 };
   App.BATTERY_DIMS = BAT;
+  // The battery stands on the bench, just under the 0.38-thick breadboard.
+  const BENCH_Y = -0.385;
+  App.BENCH_Y = BENCH_Y;
 
   // Terminal tops of a battery standing at (wx, wz): [+, −].
   function batteryPinsAt(wx, wz) {
-    const topY = BAT.H - 0.04;
+    const topY = BENCH_Y + BAT.H - 0.04;
     return [V3(wx - BAT.TERM, topY + 0.38, wz), V3(wx + BAT.TERM, topY + 0.3, wz)];
   }
   App.batteryPinsAt = batteryPinsAt;
@@ -497,7 +500,7 @@
     };
     group.add(ring(-TERM, 0xe53935), ring(TERM, 0x3a6ff0));
 
-    group.position.set(wx, 0, wz);
+    group.position.set(wx, BENCH_Y, wz);
     group.updateMatrixWorld(true);
 
     return { group, pins: batteryPinsAt(wx, wz) };   // pin 0 = +, pin 1 = −
