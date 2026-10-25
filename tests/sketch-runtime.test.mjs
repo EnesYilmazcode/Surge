@@ -94,3 +94,52 @@ test('a run says why it ended', () => {
   assert.equal(runSketch(BLINK, { maxMs: 2000 }).ended, 'max')
   assert.equal(runSketch('void setup() {}\nvoid loop() { pinMode(2, OUTPUT); digitalWrite(2, HIGH); delayMicroseconds(1); digitalWrite(2, LOW); delayMicroseconds(1); }', { maxMs: 60000 }).ended, 'events')
 })
+
+test('everyday Arduino helpers work: min, max, constrain, map, bitRead, abs', () => {
+  const run = runSketch(`void setup() { pinMode(2, OUTPUT); pinMode(4, OUTPUT); pinMode(5, OUTPUT); }
+void loop() {
+  int a = constrain(12, 0, 9) == 9 && min(3, 4) == 3 && max(3, 4) == 4 && abs(-2) == 2;
+  int b = map(5, 0, 10, 0, 100) == 50;
+  int c = bitRead(5, 0) == 1 && bitRead(5, 1) == 0;
+  digitalWrite(2, a); digitalWrite(4, b); digitalWrite(5, c); delay(100);
+}`, { maxMs: 300 })
+  assert.equal(run.error, undefined)
+  assert.deepEqual(levelsAt(run, 200), { 2: 1, 4: 1, 5: 1 })
+})
+
+test('random(lo, hi) stays in range, and randomSeed is accepted', () => {
+  const run = runSketch(`int bad = 0;
+void setup() { randomSeed(analogRead(0)); pinMode(2, OUTPUT); }
+void loop() { int r = random(1, 7); if (r < 1 || r > 6) bad = 1; digitalWrite(2, bad); delay(1); }`, { maxMs: 500 })
+  assert.equal(run.error, undefined)
+  assert.equal(levelsAt(run, 499)[2], 0)
+})
+
+test('a reference parameter changes the caller\'s variable', () => {
+  const run = runSketch(`int n = 0;
+void bump(int &x, int by) { x = x + by; }
+void setup() { pinMode(2, OUTPUT); }
+void loop() { bump(n, 1); digitalWrite(2, n == 3); delay(100); }`, { maxMs: 500 })
+  assert.equal(run.error, undefined)
+  assert.deepEqual(run.events.filter(e => e.level === 1).map(e => e.t), [200])
+})
+
+test('enums and enum classes become int constants', () => {
+  const run = runSketch(`enum Mode { IDLE, COUNTING = 5, DONE };
+enum class Dir { UP, DOWN };
+Mode m = DONE;
+Dir d = Dir::DOWN;
+void setup() { pinMode(2, OUTPUT); }
+void loop() { digitalWrite(2, m == 6 && d == Dir::DOWN); delay(100); }`, { maxMs: 300 })
+  assert.equal(run.error, undefined)
+  assert.equal(levelsAt(run, 200)[2], 1)
+})
+
+test('random() gives every face of a die, odd and even', () => {
+  const run = runSketch(`int seen = 0;
+void setup() { for (int p = 1; p <= 6; p++) pinMode(p + 10, OUTPUT); }
+void loop() { int r = random(1, 7); digitalWrite(r + 10, HIGH); delay(10); }`, { maxMs: 2000 })
+  assert.equal(run.error, undefined)
+  const lit = Object.entries(levelsAt(run, 1999)).filter(([, level]) => level === 1).map(([pin]) => Number(pin))
+  assert.deepEqual(lit.sort((a, b) => a - b), [11, 12, 13, 14, 15, 16])
+})

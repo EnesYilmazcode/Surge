@@ -37,6 +37,17 @@ const SHIM = `#include <arduino>
 #define int8_t int
 #define int16_t int
 #define int32_t int
+#define min(a, b) ((a) < (b) ? (a) : (b))
+#define max(a, b) ((a) > (b) ? (a) : (b))
+#define abs(x) ((x) < 0 ? -(x) : (x))
+#define constrain(x, lo, hi) ((x) < (lo) ? (lo) : ((x) > (hi) ? (hi) : (x)))
+#define map(x, inMin, inMax, outMin, outMax) (((x) - (inMin)) * ((outMax) - (outMin)) / ((inMax) - (inMin)) + (outMin))
+#define bit(b) (1 << (b))
+#define bitRead(v, b) (((v) >> (b)) & 1)
+#define bitSet(v, b) ((v) |= (1 << (b)))
+#define bitClear(v, b) ((v) &= ~(1 << (b)))
+#define bitWrite(v, b, x) ((x) ? bitSet(v, b) : bitClear(v, b))
+// The last line is code, not a macro: hoisted statics are added to it
 typedef bool boolean;
 `
 const SHIM_LINES = SHIM.split('\n').length - 1
@@ -47,6 +58,110 @@ const READ_MS = 20
 const CLOCK_MS = 20
 // A run that hits the interpreter's time limit keeps what it worked out, if it got this far.
 const MIN_PARTIAL_MS = 2000
+
+// JSCPP has no reference parameters. `void bump(int &n)` becomes `void bump(int *n)`,
+// each use of n inside it becomes (*n), and each call passes &(its argument).
+function referencesToPointers(source: string): string {
+  // The index of the bracket that closes the one at `open`.
+  const closing = (text: string, open: number) => {
+    const pair: Record<string, string> = { '(': ')', '{': '}' }
+    let depth = 0
+    for (let i = open; i < text.length; i++) {
+      if (text[i] === text[open]) depth++
+      else if (text[i] === pair[text[open]] && --depth === 0) return i
+    }
+    return -1
+  }
+  const refs = new Map<string, number[]>()   // function name -> argument positions taken by reference
+  let text = source
+  const header = /\b(\w+)\s*\(([^()]*&[^()]*)\)\s*(\{|;)/g
+  let m: RegExpExecArray | null
+  while ((m = header.exec(text))) {
+    const [whole, name, params, end] = m
+    if (/^(if|while|for|switch|return)$/.test(name)) continue
+    const names: string[] = []
+    const positions: number[] = []
+    const rewritten = params.split(',').map((param, k) => {
+      const ref = /^(\s*(?:const\s+)?[\w\s]*?\w)\s*&\s*(\w+)\s*$/.exec(param)
+      if (!ref) return param
+      positions.push(k)
+      names.push(ref[2])
+      return `${ref[1]} *${ref[2]}`
+    }).join(',')
+    if (!positions.length) continue
+    refs.set(name, positions)
+    let head = whole.replace(params, rewritten)
+    let tail = ''
+    let stop = m.index + whole.length
+    if (end === '{') {
+      const close = closing(text, m.index + whole.length - 1)
+      if (close < 0) continue
+      let body = text.slice(m.index + whole.length, close)
+      for (const n of names) body = body.replace(new RegExp(`(?<![.>]\\s*)\\b${n}\\b`, 'g'), `(*${n})`)
+      tail = body
+      stop = close
+    }
+    text = text.slice(0, m.index) + head + tail + text.slice(stop)
+    header.lastIndex = m.index + head.length + tail.length
+  }
+  for (const [name, positions] of refs) {
+    const call = new RegExp(`\\b${name}\\s*\\(`, 'g')
+    let c: RegExpExecArray | null
+    while ((c = call.exec(text))) {
+      const open = c.index + c[0].length - 1
+      const close = closing(text, open)
+      if (close < 0) break
+      const inside = text.slice(open + 1, close)
+      // A definition or prototype already has pointer parameters; leave it
+      if (/\*\s*\w+\s*(,|$)/.test(inside) && /\b(int|long|bool|byte|char|float|double|unsigned)\b/.test(inside)) { call.lastIndex = close; continue }
+      const args: string[] = []
+      let depth = 0, start = 0
+      for (let i = 0; i <= inside.length; i++) {
+        const ch = inside[i]
+        if (ch === '(' || ch === '[') depth++
+        else if (ch === ')' || ch === ']') depth--
+        else if ((ch === ',' && depth === 0) || i === inside.length) { args.push(inside.slice(start, i)); start = i + 1 }
+      }
+      const fixed = args.map((arg, k) => positions.includes(k) && arg.trim() ? `&(${arg.trim()})` : arg).join(',')
+      text = text.slice(0, open + 1) + fixed + text.slice(close)
+      call.lastIndex = open + 1 + fixed.length
+    }
+  }
+  return text
+}
+
+// JSCPP cannot overload random() by its number of arguments, so random(lo, hi)
+// is renamed random_between(lo, hi).
+function twoArgRandom(source: string): string {
+  return source.replace(/\brandom\s*\(/g, (call, offset: number) => {
+    let depth = 0
+    for (let i = offset + call.length; i < source.length; i++) {
+      const c = source[i]
+      if (c === '(' || c === '[') depth++
+      else if (c === ')' || c === ']') { if (depth-- === 0) return call }
+      else if (c === ',' && depth === 0) return 'random_between('
+    }
+    return call
+  })
+}
+
+// JSCPP has no enums. `enum Mode { UP, DOWN };` becomes an int type and int constants,
+// on the same lines, and `Mode::UP` from an enum class becomes UP.
+function plainEnums(source: string): string {
+  const scoped: string[] = []
+  const out = source.replace(/\benum\s+(class\s+|struct\s+)?(\w+)?\s*(?::\s*\w+\s*)?\{([^{}]*)\}\s*(\w+)?\s*;/g, (whole, isScoped, name, list, variable) => {
+    let value = -1
+    const consts = String(list).split(',').map((item: string) => item.trim()).filter(Boolean).map((item: string) => {
+      const [id, init] = item.split('=').map(t => t.trim())
+      value = init !== undefined && /^-?\d+$/.test(init) ? Number(init) : value + 1
+      return `const int ${id} = ${value};`
+    })
+    if (isScoped && name) scoped.push(name)
+    const lines = '\n'.repeat((whole.match(/\n/g) || []).length)
+    return (name ? `typedef int ${name}; ` : '') + consts.join(' ') + (variable ? ` int ${variable};` : '') + lines
+  })
+  return scoped.reduce((text, name) => text.replace(new RegExp(`\\b${name}::`, 'g'), ''), out)
+}
 
 // JSCPP starts a function's static variables over on every call, so a counter kept
 // in `static int n` never gets past its first value. Each one becomes a global with
@@ -120,7 +235,7 @@ export function runSketch(sketch: string, options: SketchOptions = {}): SketchRu
   // Serial.begin( -> Serial_begin(, and so on. Comments and strings are left alone.
   const body = sketch.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\\n])*"|\bSerial\.(begin|print|println)\s*\(/g,
     (m, call) => call ? `Serial_${call}(` : m)
-  const { text, globals } = hoistStatics(body)
+  const { text, globals } = hoistStatics(plainEnums(referencesToPointers(twoArgRandom(body))))
   // The hoisted globals share the shim's last line, so error line numbers stay right.
   const code = SHIM.slice(0, -1) + ' ' + globals + '\n' + text + '\nint main() { setup(); while (true) { loop(); } return 0; }\n'
 
@@ -161,10 +276,11 @@ export function runSketch(sketch: string, options: SketchOptions = {}): SketchRu
           // Reading the clock takes a moment too, so a loop that waits on millis() moves forward.
           def('millis', [], ulong, (r: any) => { wait(CLOCK_MS); return r.val(ulong, Math.floor(now)) })
           def('micros', [], ulong, (r: any) => { wait(CLOCK_MS); return r.val(ulong, Math.floor(now * 1000)) })
-          def('random', [int], int, (r: any, _t: any, max: any) => {
-            seed = (seed * 1103515245 + 12345) & 0x7fffffff
-            return r.val(int, max.v > 0 ? seed % max.v : 0)
-          })
+          // The low bits of this generator alternate, so the result comes from its high bits.
+          const next = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed >>> 16 }
+          def('random', [int], int, (r: any, _t: any, max: any) => r.val(int, max.v > 0 ? next() % max.v : 0))
+          def('random_between', [int, int], int, (r: any, _t: any, lo: any, hi: any) => r.val(int, hi.v > lo.v ? lo.v + next() % (hi.v - lo.v) : lo.v))
+          def('randomSeed', [ulong], none, (_r: any, _t: any, s: any) => { seed = Math.abs(Math.floor(Number(s.v))) & 0x7fffffff })
 
           def('Serial_begin', [int], none, () => {})
           // One number type: an int argument converts to double, and two overloads would be ambiguous.
