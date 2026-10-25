@@ -178,21 +178,27 @@
   // The pieces drop onto the bench one after another: a fall, then a small hop.
   // Meanwhile the LED stutters, flashing as each piece lands; once the mark is
   // down it stays on. With reduced motion, everything is simply in place and lit.
+  // Once the editor opens, the homepage's light show is over: the LED lights only
+  // when the circuit is run, so every pending flicker and flash is silenced.
+  let showOver = false;
+  let flickerTimer = null;
+
   function dropIn(title, led) {
-    const setLit = led?.group.userData.setLit;
+    const lit = led?.group.userData.setLit;
+    const setLit = lit && ((on, k) => { if (!showOver) lit(on, k); });
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setLit?.(true, 1); return; }
     const lift = title.size * 1.4, FALL = 0.68, MS = 720, START = 250, STEP = 110;
     const height = k => k < FALL ? lift * (1 - (k / FALL) ** 2)
                                  : lift * 0.06 * 4 * ((k - FALL) / (1 - FALL)) * (1 - (k - FALL) / (1 - FALL));
-    let flicker = null;
     if (setLit) setTimeout(() => {
-      flicker = setInterval(() => setLit(Math.random() < 0.4, 0.4 + Math.random() * 0.5), 70);
+      if (showOver) return;
+      flickerTimer = setInterval(() => setLit(Math.random() < 0.4, 0.4 + Math.random() * 0.5), 70);
     }, START);
     const last = title.pieces.length - 1;
     const land = i => {
       if (!setLit) return;
       setLit(true, 1.4);                                  // a flash as the piece hits
-      if (i === last) { clearInterval(flicker); setTimeout(() => setLit(true, 1), 120); }
+      if (i === last) { clearInterval(flickerTimer); setTimeout(() => setLit(true, 1), 120); }
     };
     title.pieces.forEach((m, i) => {
       const rest = m.userData.restY;
@@ -267,6 +273,10 @@
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const ms = reduce ? 1 : ENTER_MS;
     listening.abort();
+    // The demo circuit is not running in the editor, so its LED goes dark
+    showOver = true;
+    clearInterval(flickerTimer);
+    App.state.components.forEach(c => { if (c.type === 'led') c.group.userData.setLit?.(false); });
     App.setMode('select');            // and no leftover hint from wiring the demo
     App.removeTicker(breathe);
     App.controls.enabled = true;
