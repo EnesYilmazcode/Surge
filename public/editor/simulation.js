@@ -888,21 +888,21 @@
       _sketchErrors = runs.filter(r => r.run.error).map(r => ({
         text: ((r.comp.values && r.comp.values.sketch) || 'sketch') + ': ' + r.run.error, cls: 'sim-err',
       }));
-      // A sketch that reads a pin depends on the session, so it runs on the session
-      // clock. One that only blinks replays its run, as it always has.
+      // Every sketch runs on the session clock. One that reads a pin also replays the
+      // presses, so it shows each button in the state it had at that moment.
       const sessional = runs.some(({ run }) => !run.error && run.reads > 0);
       let last = null;
       const tick = () => {
         const elapsed = sessionElapsed();
-        if (sessional) {
-          // Each button shows the state it had at this moment
-          components.forEach(c => { if (c.type === 'button') c.pressed = pressedAt(c, elapsed); });
-          // Extend a run that is nearly used up, from the current moment
-          if (runs.some(({ run }) => !run.error && run.duration < SESSION_MAX && elapsed > run.duration - 1000)) {
-            stopPlayback();
-            playSketch(components, wires);
-            return;
-          }
+        // Each button shows the state it had at this moment
+        if (sessional) components.forEach(c => { if (c.type === 'button') c.pressed = pressedAt(c, elapsed); });
+        // Extend a run that is nearly used up, from the current moment. A sketch that
+        // never reads a pin needs this too: a counter that steps once a second would
+        // otherwise loop its first few seconds and never pass 4.
+        if (runs.some(({ run }) => !run.error && run.duration < SESSION_MAX && elapsed > run.duration - 1000)) {
+          stopPlayback();
+          playSketch(components, wires);
+          return;
         }
         const pins = {};
         runs.forEach(({ ci, run }) => {
