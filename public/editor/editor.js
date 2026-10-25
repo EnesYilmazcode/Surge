@@ -838,28 +838,38 @@
     const prevPos    = App.camera.position.clone();
     const prevTarget = App.controls.target.clone();
 
-    // Isometric view
-    App.camera.position.set(20, 22, 20);
-    App.controls.target.set(0, 0, 0);
-    App.camera.lookAt(0, 0, 0);
-    App.renderer.render(App.scene, App.camera);
+    try {
+      // Keep the original isometric angle and pan the framing to the right.
+      App.camera.position.set(20, 22, 20);
+      App.controls.target.set(0, 0, 0);
+      App.camera.lookAt(0, 0, 0);
+      const viewWidth = 2 * App.camera.position.length()
+        * Math.tan(THREE.MathUtils.degToRad(App.camera.fov / 2)) * App.camera.aspect;
+      const pan = new THREE.Vector3(1, 0, 0).applyQuaternion(App.camera.quaternion)
+        .multiplyScalar(viewWidth * 0.2);
+      App.camera.position.add(pan);
+      App.controls.target.add(pan);
+      App.camera.lookAt(App.controls.target);
+      App.renderer.render(App.scene, App.camera);
 
-    // Downsample to 320-wide thumbnail
-    const src = App.renderer.domElement;
-    const scale = Math.min(1, 320 / src.width);
-    const th  = document.createElement('canvas');
-    th.width  = Math.round(src.width  * scale);
-    th.height = Math.round(src.height * scale);
-    th.getContext('2d').drawImage(src, 0, 0, th.width, th.height);
-    const dataURL = th.toDataURL('image/jpeg', 0.72);
+      // Enough resolution for the saved-project rows on high-density screens.
+      const src = App.renderer.domElement;
+      const scale = Math.min(1, 768 / src.width);
+      const th = document.createElement('canvas');
+      th.width = Math.max(1, Math.round(src.width * scale));
+      th.height = Math.max(1, Math.round(src.height * scale));
+      const context = th.getContext('2d');
+      context.imageSmoothingQuality = 'high';
+      context.drawImage(src, 0, 0, th.width, th.height);
+      return th.toDataURL('image/jpeg', 0.9);
 
-    // Restore camera
-    App.camera.position.copy(prevPos);
-    App.controls.target.copy(prevTarget);
-    App.camera.lookAt(prevTarget);
-    App.controls.update();
-
-    return dataURL;
+    } finally {
+      // Restore camera
+      App.camera.position.copy(prevPos);
+      App.controls.target.copy(prevTarget);
+      App.camera.lookAt(prevTarget);
+      App.controls.update();
+    }
   }
 
   App.saveCircuit = function () {
@@ -1308,6 +1318,10 @@
     _autoSaveTimer = setTimeout(_doAutoSave, 800);
   }
   App.scheduleAutoSave = scheduleAutoSave;
+  App.flushAutoSave = function () {
+    clearTimeout(_autoSaveTimer);
+    _doAutoSave();
+  };
 
   function _doAutoSave() {
     if (App.isHero) return;                                        // the homepage scene saves nothing
@@ -1317,24 +1331,10 @@
       state.circuitId = newCircuitId();
     }
 
-    // Lightweight thumbnail for auto-save (smaller than download)
+    // Use the same sharp preview for browser saves and downloads.
     let thumb = null;
     try {
-      const prevPos    = App.camera.position.clone();
-      const prevTarget = App.controls.target.clone();
-      App.camera.position.set(20, 22, 20);
-      App.controls.target.set(0, 0, 0);
-      App.camera.lookAt(0, 0, 0);
-      App.renderer.render(App.scene, App.camera);
-      const src = App.renderer.domElement;
-      const th  = document.createElement('canvas');
-      th.width  = 240; th.height = Math.round(240 * src.height / src.width);
-      th.getContext('2d').drawImage(src, 0, 0, th.width, th.height);
-      thumb = th.toDataURL('image/jpeg', 0.55);
-      App.camera.position.copy(prevPos);
-      App.controls.target.copy(prevTarget);
-      App.camera.lookAt(prevTarget);
-      App.controls.update();
+      thumb = captureIsometricThumb();
     } catch {}
 
     const board = serializeBoard();

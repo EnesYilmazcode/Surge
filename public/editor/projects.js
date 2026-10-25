@@ -3,6 +3,7 @@
   dialog.className = 'project-dialog';
   document.body.append(dialog);
   App.openProjects = function() {
+    App.flushAutoSave();
     dialog.replaceChildren();
     const heading = document.createElement('h2');
     heading.textContent = 'Open a circuit';
@@ -15,11 +16,18 @@
     for (const project of projects.slice(0, 30)) {
       const button = document.createElement('button');
       button.className = 'saved-project';
+      if (typeof project.thumbnail === 'string' && /^data:image\/(jpeg|png);base64,/.test(project.thumbnail)) {
+        const preview = document.createElement('img');
+        preview.className = 'saved-project-preview';
+        preview.src = project.thumbnail;
+        preview.alt = '';
+        preview.draggable = false;
+        preview.onerror = () => preview.remove();
+        button.append(preview);
+      }
       const title = document.createElement('strong');
       title.textContent = project.name || 'Untitled';
-      const detail = document.createElement('span');
-      detail.textContent = (project.components?.length || 0) + ' components · ' + (project.wires?.length || 0) + ' wires';
-      button.append(title, detail);
+      button.append(title);
       button.onclick = () => {
         try { App.loadCircuitData(WorkbenchFiles.validate(project)); dialog.close(); }
         catch (error) { App.setHint(error.message, 4000); }
