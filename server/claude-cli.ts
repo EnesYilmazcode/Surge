@@ -21,7 +21,7 @@ export interface ClaudeRequest {
   signal?: AbortSignal
 }
 
-export class ClaudeUnavailableError extends Error {}
+export class ClaudeUnavailableError extends Error { name = 'ClaudeUnavailableError' }
 
 const MAX_OUTPUT = 4 * 1024 * 1024
 

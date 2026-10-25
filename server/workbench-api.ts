@@ -1,7 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { SurgeOptions } from './surge-api.js'
-import { askClaude, ClaudeUnavailableError } from './claude-cli.ts'
-import { askCodex, CodexUnavailableError, dropNulls, strictSchema } from './codex-cli.ts'
+// The CLI adapters load only when their provider is chosen. The hosted function runs
+// Gemini, and Vercel's build keeps these .ts paths, which would fail to load there.
+const loadClaude = () => import('./claude-cli.ts')
+const loadCodex = () => import('./codex-cli.ts')
 
 const kinds = ['resistor', 'led', 'battery', 'buzzer', 'button', 'esp32', 'seg7']
 const tools = ['place_resistor', 'place_led', 'place_buzzer', 'place_button', 'place_battery', 'place_seg7', 'add_wire', 'remove_component', 'remove_wire', 'delete_all', 'write_sketch', 'set_value', 'place_esp32', 'connect_pin']
@@ -190,8 +192,10 @@ export function createWorkbenchHandler(options: SurgeOptions) {
     try {
       let result: { reply?: unknown; actions?: unknown }
       if (provider === 'claude') {
+        const { askClaude } = await loadClaude()
         result = await askClaude({ system: instruction, prompt: transcript(body.history, turn), schema, signal: controller.signal }, options.claude) as { reply?: unknown; actions?: unknown }
       } else if (provider === 'codex') {
+        const { askCodex, dropNulls, strictSchema } = await loadCodex()
         result = dropNulls(await askCodex({ system: instruction, prompt: transcript(body.history, turn), schema: strictSchema(schema), signal: controller.signal }, options.codex)) as { reply?: unknown; actions?: unknown }
       } else {
         const upstream = await (options.fetch || globalThis.fetch)(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(options.model || 'gemini-2.5-flash')}:generateContent`, {
@@ -217,7 +221,7 @@ export function createWorkbenchHandler(options: SurgeOptions) {
       validateWorkbenchActions(result.actions, body.board)
       json(response, 200, { reply: result.reply, actions: result.actions })
     } catch (error) {
-      if (error instanceof ClaudeUnavailableError || error instanceof CodexUnavailableError) { if (!response.destroyed) json(response, 503, { error: error.message }); return }
+      if (error instanceof Error && /^(Claude|Codex)UnavailableError$/.test(error.name)) { if (!response.destroyed) json(response, 503, { error: error.message }); return }
       if (!response.destroyed) json(response, controller.signal.aborted ? 504 : 502, { error: 'Surge could not return a valid proposal. Your circuit has not changed.' })
     } finally { clearTimeout(timeout); response.off('close', cancel) }
   }

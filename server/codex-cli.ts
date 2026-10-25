@@ -21,7 +21,7 @@ export interface CodexRequest {
   signal?: AbortSignal
 }
 
-export class CodexUnavailableError extends Error {}
+export class CodexUnavailableError extends Error { name = 'CodexUnavailableError' }
 
 // Codex's structured output is strict: every property must be listed in `required`,
 // so an optional field becomes a required field that may be null. dropNulls then
