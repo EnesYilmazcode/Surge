@@ -339,6 +339,30 @@
         if (w) tint(w.group);
       }
     }
+    // The direct actions get ghosts too: the ESP32s they place and the pin wires they add,
+    // so they show in the same blue as the other parts, or red when they do not fit.
+    const pads = App.state.components.filter(c => c.type === 'esp32')
+      .map(c => (c.pinMeshes || []).map(pm => pm.userData.world));
+    for (const a of direct) {
+      if (a.tool === 'place_esp32') {
+        const hA = holeObj(a.holeA), hB = holeObj(a.holeB);
+        const holes = hA && hB ? App.esp32Holes(hA, hB) : null;
+        if (!holes) continue;
+        const ok = holes.every(h => App.isHoleFree(h) && !App.underBoard(h)) && !App.overlapsPart('esp32', hA, hB);
+        const built = App.buildESP32(hA, hB);
+        ghosts.push(App.ghostify(built.group, ok));
+        built.group.updateMatrixWorld(true);
+        pads.push(built.group.userData.pinTops.map(local => built.group.localToWorld(local.clone())));
+      } else if (a.tool === 'connect_pin') {
+        const m = /^esp32_(\d+)_(\w+)$/.exec(a.pin || '');
+        const pad = m ? (pads[+m[1]] || [])[App.ESP32_PINS.indexOf(m[2])] : null;
+        const hole = holeObj(a.to);
+        if (pad && hole) {
+          const hex = WIRE_HEX[a.color] ?? 0xef4444;
+          ghosts.push(App.buildWire(pad.clone(), hole.world.clone(), hex, { material: ghostWireMat(hex) }));
+        }
+      }
+    }
     ghosts.forEach(g => App.scene.add(g));
     pending = { actions: boardActions, direct, ghosts, tinted };
     pending.signature = JSON.stringify(App.exportBoard());
