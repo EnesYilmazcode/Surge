@@ -400,6 +400,23 @@
     addMsg('Discarded.', 'system');
   }
 
+  // A sketch in a proposal is run for a few simulated seconds before it is shown,
+  // so one the simulator cannot run goes back to the model instead of onto the board.
+  async function sketchProblem(actions) {
+    if (!App.runSketch) return null;
+    for (const a of actions) {
+      if ((a.tool !== 'place_esp32' && a.tool !== 'write_sketch') || typeof a.code !== 'string') continue;
+      const run = await App.runSketch(a.code, { maxMs: 3000 });
+      if (run.error) return { error: run.error, code: a.code };
+    }
+    return null;
+  }
+
+  function repairRequest(msg, problem) {
+    return `My request was: ${msg.slice(0, 1500)}\n\nThe sketch in your proposal does not run in Surge's simulator: ${problem.error}\n` +
+      `Send the whole proposal again, with the sketch rewritten so it runs. Your sketch was:\n${problem.code.slice(0, 3500)}`;
+  }
+
   // ── Main ask ─────────────────────────────────────────────────
   let busy = false;
   async function ask(override) {
@@ -415,7 +432,17 @@
     input.style.height = 'auto';
     const typing = addTyping();
     try {
-      const data = await askSurge(msg);
+      let data = await askSurge(msg);
+      let attempts = 1;
+      const problem = await sketchProblem(data.actions);
+      if (problem) {
+        const label = typing.querySelector('.typing-label');
+        if (label) label.textContent = 'Fixing the sketch…';
+        try {
+          const retry = await askSurge(repairRequest(msg, problem));
+          if (retry.actions.length && !(await sketchProblem(retry.actions))) { data = retry; attempts = 2; }
+        } catch { /* keep the first proposal; its sketch error shows when it runs */ }
+      }
       typing.remove();
       if (signature !== JSON.stringify(App.exportBoard())) {
         addMsg('The board changed while Surge was thinking. Please send the request again.', 'system');
@@ -423,6 +450,7 @@
       }
       const boardOnly = data.actions.filter(a => !DIRECT.has(a.tool));
       const v = boardOnly.length ? (data.verification || localVerify(boardOnly)) : null;
+      if (v) v.attempts = Math.max(v.attempts || 1, attempts);
       // The reply ends with the verdict; the card under it says it once.
       const said = v && v.summary ? (data.reply || '').replace(v.summary, '').trim() : data.reply;
       addMsg(said || 'Here is the build.', 'ai');

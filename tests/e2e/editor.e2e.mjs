@@ -315,3 +315,27 @@ for (const [name, sketch] of Object.entries(COUNTERS)) {
     await page.close();
   });
 }
+
+test('a proposed sketch the simulator cannot run goes back to the model once, and the rewrite is shown', async () => {
+  const page = await openEditor(browser);
+  const BAD = 'struct B { int pin; };\nB b;\nvoid setup() { pinMode(2, OUTPUT); }\nvoid loop() { delay(100); }';
+  const GOOD = 'void setup() { pinMode(2, OUTPUT); }\nvoid loop() { digitalWrite(2, HIGH); delay(100); }';
+  const asked = [];
+  await page.setRequestInterception(true);
+  page.on('request', req => {
+    if (!req.url().includes('/api/surge/workbench')) { req.continue(); return; }
+    asked.push(JSON.parse(req.postData()).message);
+    const code = asked.length === 1 ? BAD : GOOD;
+    req.respond({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ reply: 'Here it is.', actions: [{ tool: 'place_esp32', holeA: 'i1', holeB: 'b1', code }] }) });
+  });
+  await page.evaluate(() => window.surgeAsk('blink an LED on D2'));
+  assert.equal(asked.length, 2);
+  assert.match(asked[1], /does not run in Surge's simulator/);
+  assert.match(asked[1], /struct B/);
+  await page.evaluate(() => window.surgeAcceptChanges());
+  const sketch = await page.evaluate(() => App.getSketch(App.state.components.find(c => c.type === 'esp32').values.sketch));
+  assert.equal(sketch, GOOD);
+  assert.deepEqual(page.errors, []);
+  await page.close();
+});
