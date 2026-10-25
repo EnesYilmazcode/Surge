@@ -75,15 +75,31 @@
     // A dark window the digit sits behind, then the bars: along z they are
     // horizontal in the digit (a, g, d); along x they are vertical (b, c, e, f).
     f.box(1.95, 0.02, 1.25, MAT.window, 0, y - 0.01, 0);
-    const bar = (w, d, x, z) => f.box(w, 0.04, d, MAT.segOff, x, y + 0.01, z);
-    bar(0.1, 0.9, 0.82, 0);        // a, top
-    bar(0.66, 0.1, 0.42, 0.42);    // b, upper right
-    bar(0.66, 0.1, -0.42, 0.42);   // c, lower right
-    bar(0.1, 0.9, -0.82, 0);       // d, bottom
-    bar(0.66, 0.1, -0.42, -0.42);  // e, lower left
-    bar(0.66, 0.1, 0.42, -0.42);   // f, upper left
-    bar(0.1, 0.9, 0, 0);           // g, middle
+    // Each segment has its own material, so a lit one glows without the rest.
+    const segs = {};
+    const bar = (seg, w, d, x, z) => {
+      const mat = new THREE.MeshStandardMaterial({ color: lin(0x5a1414), roughness: 0.35, emissive: lin(0xff3324), emissiveIntensity: 0 });
+      segs[seg] = f.box(w, 0.04, d, mat, x, y + 0.01, z);
+    };
+    bar('a', 0.1, 0.9, 0.82, 0);        // top
+    bar('b', 0.66, 0.1, 0.42, 0.42);    // upper right
+    bar('c', 0.66, 0.1, -0.42, 0.42);   // lower right
+    bar('d', 0.1, 0.9, -0.82, 0);       // bottom
+    bar('e', 0.66, 0.1, -0.42, -0.42);  // lower left
+    bar('f', 0.66, 0.1, 0.42, -0.42);   // upper left
+    bar('g', 0.1, 0.9, 0, 0);           // middle
+    bar('dp', 0.12, 0.12, -0.92, 0.62); // decimal point, lower right
     f.box(0.1, 0.05, 0.1, MAT.white, -BL / 2 + 0.25, y, -BD / 2 + 0.25);   // pin 1 mark
+
+    // simulation.js calls this with the current in amps through each segment; a lit
+    // segment glows in proportion to its current, and an unlit one goes dark.
+    group.userData.setSegments = lit => {
+      for (const seg of Object.keys(segs)) {
+        const I = lit[seg] || 0;
+        segs[seg].material.emissiveIntensity = I > 0 ? 0.6 + 1.4 * Math.min(1, I / 0.02) : 0;
+        segs[seg].material.color.copy(lin(I > 0 ? 0xff5a48 : 0x5a1414));
+      }
+    };
 
     return { group, pins: holes.map(h => V3(h.x, 0, h.z)) };
   }

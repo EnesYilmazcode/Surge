@@ -12,11 +12,13 @@ export interface SketchRun {
   events: PinEvent[]                 // every change to an OUTPUT pin, in time order
   duration: number                   // virtual milliseconds that were run
   serial: string                     // everything the sketch printed
+  reads: number                      // how many times it read a pin, so whether its result depends on inputs
   error?: string
 }
 
 export interface SketchOptions {
   inputs?: Record<number, 0 | 1 | null>  // what digitalRead sees; null means unconnected
+  inputsAt?: (ms: number) => Record<number, 0 | 1 | null>  // the same, at a moment of simulated time
   maxMs?: number
 }
 
@@ -38,6 +40,8 @@ typedef bool boolean;
 `
 const SHIM_LINES = SHIM.split('\n').length - 1
 const STOP = '__surge_stop__'
+// Simulated time one digitalRead takes, in ms. A polling loop moves the clock by this much per read.
+const READ_MS = 20
 
 export function runSketch(sketch: string, options: SketchOptions = {}): SketchRun {
   const maxMs = options.maxMs ?? 10000
@@ -47,6 +51,7 @@ export function runSketch(sketch: string, options: SketchOptions = {}): SketchRu
   let serial = ''
   let now = 0
   let seed = 12345
+  let reads = 0
 
   const record = (pin: number, level: 0 | 1) => {
     if (levels.get(pin) === level) return
@@ -84,7 +89,11 @@ export function runSketch(sketch: string, options: SketchOptions = {}): SketchRu
             if (modes.get(pin.v) === 1) record(pin.v, level.v ? 1 : 0)
           })
           def('digitalRead', [int], int, (r: any, _t: any, pin: any) => {
-            const wired = options.inputs?.[pin.v]
+            // A read takes READ_MS of simulated time. A loop that polls a pin without
+            // delay() would otherwise never move the clock, and never end.
+            reads++
+            wait(READ_MS)
+            const wired = options.inputsAt ? options.inputsAt(now)[pin.v] : options.inputs?.[pin.v]
             const level = wired ?? (modes.get(pin.v) === 2 ? 1 : 0)
             return r.val(int, level)
           })
@@ -112,7 +121,7 @@ export function runSketch(sketch: string, options: SketchOptions = {}): SketchRu
     },
   }
 
-  const finish = (error?: string): SketchRun => ({ events, duration: Math.min(now, maxMs), serial, ...(error ? { error } : {}) })
+  const finish = (error?: string): SketchRun => ({ events, duration: Math.min(now, maxMs), serial, reads, ...(error ? { error } : {}) })
 
   let JSCPP: { run(code: string, input: string, config?: Record<string, unknown>): number }
   try {

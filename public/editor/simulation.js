@@ -59,10 +59,17 @@
     resistor: { resistance: 470 },    // about 15 mA on 9 V through an LED
     led:      { forwardVoltage: 2.0, thresholdCurrent: 0.001, maxCurrent: 0.020 },
     buzzer:   { resistance: 42,      thresholdCurrent: 0.001 },
+    seg7:     { forwardVoltage: 2.0, thresholdCurrent: 0.001, maxCurrent: 0.020 },   // per segment
   };
 
+  // A 10-pin common-cathode display. Each segment is an LED from its pin to the
+  // common cathode, and pins 3 and 8 are that common cathode, joined inside the part.
+  const SEG7_SEGMENTS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'dp'];
+  const SEG7_PIN = { a: 6, b: 5, c: 3, d: 1, e: 0, f: 8, g: 9, dp: 4 };   // zero-based pin index
+  const SEG7_COM = [2, 7];
+
   // Parts placed on the board but not simulated yet. Their notes say so.
-  const NOT_SIMULATED = { seg7: '7-segment display' };
+  const NOT_SIMULATED = {};
 
   // A placed component carries its own values. PROPS is the default for parts
   // built before instance values existed, and is what keeps this module
@@ -256,6 +263,13 @@
       }
     });
 
+    // A 7-segment display's two common-cathode pins are one net inside the part
+    components.forEach((comp, ci) => {
+      if (comp.type === 'seg7' && comp.pins.length === 10) {
+        uf.union(pinNode[ci][SEG7_COM[0]], pinNode[ci][SEG7_COM[1]]);
+      }
+    });
+
     // 4. Resolve each pin to its root
     return components.map((comp, ci) => ({
       comp,
@@ -308,6 +322,17 @@
             a: track(nodes[LED_ANODE_PIN]),
             b: track(nodes[1 - LED_ANODE_PIN]),
             vf: p.forwardVoltage || 0 });
+          break;
+
+        case 'seg7':
+          // Each segment is an LED from its pin (anode) to the common cathode.
+          // A part built without its own values falls back to the PROPS default.
+          SEG7_SEGMENTS.forEach(seg => {
+            elements.push({ id: id + '_' + seg, kind: 'diode', model: 'pwl',
+              a: track(nodes[SEG7_PIN[seg]]),
+              b: track(nodes[SEG7_COM[0]]),
+              vf: p.forwardVoltage ?? PROPS.seg7.forwardVoltage });
+          });
           break;
 
         case 'button':
@@ -492,6 +517,30 @@
       }
     });
 
+    // ── 7-segment displays: which segments carry current ─────
+    //  Each segment is one diode in the netlist, so a segment is lit
+    //  when the solver sends it current, exactly like an LED.
+    const segments = new Map();
+    graph.forEach(({ comp }) => {
+      if (comp.type !== 'seg7' || !comp._simId) return;
+      const lit = {};
+      SEG7_SEGMENTS.forEach(seg => {
+        const I = sol.currents[comp._simId + '_' + seg] ?? 0;
+        if (I >= PROPS.seg7.thresholdCurrent) lit[seg] = I;
+      });
+      segments.set(comp, lit);
+      const names = Object.keys(lit);
+      if (!names.length) {
+        lines.push({ text: '  7-segment display: all segments dark.', cls: 'sim-info' });
+        return;
+      }
+      const peak = Math.max(...names.map(seg => lit[seg])) * 1000;
+      lines.push({ text: `  7-segment display: ${names.join(' ')} lit (up to ${peak.toFixed(1)} mA)`, cls: 'sim-on' });
+      if (peak > (PROPS.seg7.maxCurrent * 1000)) {
+        lines.push({ text: `  7-segment display: a segment is over its ${PROPS.seg7.maxCurrent * 1000} mA rating. Put a 220 to 470 ohm resistor on each segment.`, cls: 'sim-err' });
+      }
+    });
+
     // ── Resistor-only circuits still deserve numbers ──────────
     //  A voltage divider is the most common teaching circuit there
     //  is, and the old engine printed nothing at all for it.
@@ -508,8 +557,8 @@
         branches.push({ battery: 0, path: [], totalR: 0, totalVf: 0,
                         current: Math.abs(iOf(rs[0].comp)), shorted: false });
       }
-      lines.push({ text: '  No output components in circuit path.', cls: 'sim-info' });
-    } else if (!ledsOn.length && !buzzersOn.length && !backwards.length) {
+      if (!segments.size) lines.push({ text: '  No output components in circuit path.', cls: 'sim-info' });
+    } else if (!ledsOn.length && !buzzersOn.length && !backwards.length && !segments.size) {
       lines.push({ text: '  No output components in circuit path.', cls: 'sim-info' });
     }
 
@@ -526,7 +575,7 @@
       }
     }
 
-    return { status: 'ok', lines, ledsOn, buzzersOn, branches, nodeVoltages, currents: sol.currents };
+    return { status: 'ok', lines, ledsOn, buzzersOn, branches, nodeVoltages, currents: sol.currents, segments };
   }
 
   // ── Presentation ─────────────────────────────────────────────
@@ -684,6 +733,7 @@
     App.state.components.forEach(c => {
       if (c.type === 'led')    dimLED(c);
       if (c.type === 'buzzer') { deactivateBuzzer(c); c.group.userData.setActive?.(false); }
+      if (c.type === 'seg7')   c.group.userData.setSegments?.({});
     });
     stopAllBuzzers();
     hideResults();
@@ -714,6 +764,11 @@
     showResults(result.lines.concat(notes, _sketchErrors));
     if (result.status === 'empty') return result;
 
+    // Each display shows the segments the solver lights; without a solution, all stay dark.
+    components.forEach(c => {
+      if (c.type === 'seg7') c.group.userData.setSegments?.((result.segments && result.segments.get(c)) || {});
+    });
+
     const current = new Map();
     components.forEach(c => { if (c._simId && result.currents) current.set(c, result.currents[c._simId]); });
     result.ledsOn.forEach(c => lightUpLED(c, current.get(c)));
@@ -727,27 +782,100 @@
     return result;
   }
 
+  // ── Session: presses over time ──────────────────────────────
+  //  From Run until Stop, each button's presses and releases are kept as a timeline
+  //  in simulated time. A sketch reads a button at the moment it reads it, so a
+  //  counter that counts presses keeps its count from one press to the next instead
+  //  of starting over on every click.
+  const SESSION_SPAN = 5000;    // simulated ms a run covers past the current moment
+  const SESSION_MAX  = 180000;  // past this, a long session replays its last run
+  let _session = null;          // { t0, presses: Map(button -> [{ t, pressed }]) }
+
+  function sessionElapsed() { return _session ? performance.now() - _session.t0 : 0; }
+
+  function startSession(components) {
+    _session = { t0: performance.now(), presses: new Map() };
+    components.forEach(c => {
+      if (c.type === 'button') _session.presses.set(c, [{ t: 0, pressed: !!c.pressed }]);
+    });
+  }
+
+  // The state a button had at a moment of the session.
+  function pressedAt(comp, ms) {
+    const log = _session && _session.presses.get(comp);
+    if (!log) return !!comp.pressed;
+    let state = log[0].pressed;
+    for (const e of log) { if (e.t <= ms) state = e.pressed; else break; }
+    return state;
+  }
+
+  // A button clicked during the session has changed state now, so record that moment.
+  function recordPresses(components) {
+    const ms = sessionElapsed();
+    components.forEach(c => {
+      if (c.type !== 'button') return;
+      if (!_session.presses.has(c)) _session.presses.set(c, [{ t: 0, pressed: false }]);
+      if (pressedAt(c, ms) !== !!c.pressed) _session.presses.get(c).push({ t: ms, pressed: !!c.pressed });
+    });
+  }
+
+  // The GPIO levels for each ESP32 at a moment of the session. Each combination of
+  // pressed buttons is solved once, and the cache is kept for one run.
+  function gpioLevelsAt(components, wires, cache) {
+    return ms => {
+      const buttons = components.filter(c => c.type === 'button');
+      const pressed = buttons.map(b => pressedAt(b, ms));
+      const key = pressed.map(p => (p ? '1' : '0')).join('');
+      if (!cache.has(key)) {
+        const saved = buttons.map(b => b.pressed);
+        buttons.forEach((b, i) => { b.pressed = pressed[i]; });
+        cache.set(key, espInputs(buildGraph(components, wires)));
+        buttons.forEach((b, i) => { b.pressed = saved[i]; });
+      }
+      return cache.get(key);
+    };
+  }
+
   function playSketch(components, wires) {
     const token = ++_sketchToken;
-    const inputs = espInputs(buildGraph(components, wires));
     const boards = [];
     components.forEach((comp, ci) => { if (comp.type === 'esp32') boards.push({ comp, ci }); });
+    const levels = gpioLevelsAt(components, wires, new Map());
+    const maxMs = Math.min(Math.ceil(sessionElapsed()) + SESSION_SPAN, SESSION_MAX);
 
-    // Each ESP32 runs the file it is tied to.
+    // Each ESP32 runs the file it is tied to. It reads its pins at the simulated
+    // moment of each read, so a button pressed during the session is seen.
     Promise.all(boards.map(({ comp, ci }) =>
-      App.runSketch(App.getSketch(comp.values && comp.values.sketch), { inputs: inputs[ci] })
-        .then(run => ({ comp, ci, run }))
+      App.runSketch(App.getSketch(comp.values && comp.values.sketch), {
+        inputsAt: ms => levels(ms)[ci] || {},
+        maxMs,
+      }).then(run => ({ comp, ci, run }))
     )).then(runs => {
       if (token !== _sketchToken) return;
       _sketchErrors = runs.filter(r => r.run.error).map(r => ({
         text: ((r.comp.values && r.comp.values.sketch) || 'sketch') + ': ' + r.run.error, cls: 'sim-err',
       }));
-      const start = performance.now();
+      // A sketch that reads a pin depends on the session, so it runs on the session
+      // clock. One that only blinks replays its run, as it always has.
+      const sessional = runs.some(({ run }) => !run.error && run.reads > 0);
       let last = null;
       const tick = () => {
-        const elapsed = performance.now() - start, pins = {};
+        const elapsed = sessionElapsed();
+        if (sessional) {
+          // Each button shows the state it had at this moment
+          components.forEach(c => { if (c.type === 'button') c.pressed = pressedAt(c, elapsed); });
+          // Extend a run that is nearly used up, from the current moment
+          if (runs.some(({ run }) => !run.error && run.duration < SESSION_MAX && elapsed > run.duration - 1000)) {
+            stopPlayback();
+            playSketch(components, wires);
+            return;
+          }
+        }
+        const pins = {};
         runs.forEach(({ ci, run }) => {
-          pins[ci] = run.error ? {} : run.at(run.duration ? elapsed % run.duration : 0);
+          if (run.error) { pins[ci] = {}; return; }
+          const at = sessional && elapsed <= run.duration ? elapsed : (run.duration ? elapsed % run.duration : 0);
+          pins[ci] = run.at(at);
         });
         const key = JSON.stringify(pins);
         if (key === last) return;
@@ -767,6 +895,7 @@
     const { components, wires } = App.state;
     const isRerun = _btnClickHandler !== null; // already running = button click re-run
     stopPlayback();
+    if (!isRerun || !_session) startSession(components); else recordPresses(components);
 
     // Switch to select mode so user can click components during simulation
     if (!isRerun && App.setMode) App.setMode('select');
@@ -784,6 +913,7 @@
   // ── Public: stopSimulation ──────────────────────────────────
   function stopSimulation() {
     stopPlayback();
+    _session = null;
     clearSimVisuals();
     // Reset all buttons directly — no toggleButton call to avoid re-entrancy
     App.state.components.forEach(c => {

@@ -174,6 +174,14 @@
   }
 
   function execOne(a) {
+    if (a.tool === 'place_seg7') {
+      // The same footprint and checks a person's placement gets, from the pin 1 hole.
+      const hA = holeObj(a.holeA);
+      const fp = hA ? App.partFootprint('seg7', hA, 0) : null;
+      if (!fp || !fp.ok) return false;
+      App.placePart('seg7', fp.holes);
+      return true;
+    }
     const place = /^place_(resistor|led|buzzer|button)$/.exec(a.tool);
     if (place) {
       const hA = holeObj(a.holeA), hB = holeObj(a.holeB);
@@ -304,6 +312,10 @@
         ghosts.push(g);
         batPins['battery_' + batteries] = App.batteryPinsAt(p.x, p.z);
         batteries++;
+      } else if (a.tool === 'place_seg7') {
+        const hA = at(a.holeA);
+        const fp = hA ? App.partFootprint('seg7', hA, 0) : null;
+        if (fp && fp.holes) ghosts.push(App.buildPartPreview('seg7', fp.holes, fp.ok));
       } else if (/^place_/.test(a.tool)) {
         const g = App.buildPreview(a.tool.slice(6), at(a.holeA), at(a.holeB), true, { resistance: a.resistance, color: a.color });
         if (g) ghosts.push(g);

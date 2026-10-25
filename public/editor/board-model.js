@@ -29,7 +29,8 @@
   const RAIL_ROWS = ['tp', 'tn', 'bn', 'bp'];
   const ON_BOARD  = ['resistor', 'led', 'buzzer', 'button'];
   // The ESP32 is known so its holes count as taken, but the AI cannot place one.
-  const TYPES     = ON_BOARD.concat(['battery', 'esp32']);
+  // A 7-segment display is placed by place_seg7 and takes ten holes.
+  const TYPES     = ON_BOARD.concat(['battery', 'esp32', 'seg7']);
   const MAX_SPAN  = 12;
 
   const DEFAULTS = {
@@ -39,6 +40,7 @@
     button:   {},
     battery:  { voltage: 9 },
     esp32:    {},
+    seg7:     {},
   };
   // Typical forward voltage per LED colour. components.js reads this too.
   const LED_VF = { red: 2.0, yellow: 2.1, green: 2.2, blue: 3.2, white: 3.4 };
@@ -205,6 +207,26 @@
         const slot = board.components.filter(c => c.type === 'battery').length;
         board.components.push({ type: 'battery', holes: null, values: cleanValues('battery', a), slot });
         resolved.push({ tool, slot });
+        return;
+      }
+
+      if (tool === 'place_seg7') {
+        // holeA is pin 1, in row e. Pins 1 to 5 run along row e, and pins 6 to 10 back along row f,
+        // the same layout the editor uses when a person places one.
+        const hA = parseHole(a.holeA);
+        if (!hA || hA.row !== 'e' || hA.col + 4 >= COLS) {
+          errors.push(`${where}: "${a.holeA}" is not a valid pin 1 hole. Use row e, with four more columns to its right.`);
+          return;
+        }
+        const holes = [0, 1, 2, 3, 4].map(i => ({ col: hA.col + i, row: 'e' }))
+          .concat([4, 3, 2, 1, 0].map(i => ({ col: hA.col + i, row: 'f' })));
+        const taken = occupied(board);
+        if (holes.some(h => taken.has(holeKey(h)))) {
+          errors.push(`${where}: a hole the display needs, from ${a.holeA}, is already taken.`);
+          return;
+        }
+        board.components.push({ type: 'seg7', holes, values: cleanValues('seg7', a) });
+        resolved.push({ tool, holeA: formatHole(holes[0]) });
         return;
       }
 
