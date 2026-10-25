@@ -65,3 +65,18 @@ test('place_esp32 and connect_pin are checked for their placement and pin names'
   assert.throws(() => validateWorkbenchActions([{ tool: 'connect_pin', pin: 'esp32_5_D2', to: 'a7', color: 'red' }], board), /Invalid ESP32 pin/)
   assert.throws(() => validateWorkbenchActions([{ tool: 'connect_pin', pin: 'esp32_0_D2', to: 'z9', color: 'red' }], board), /Invalid wire endpoint/)
 })
+
+test('a sketch written for a newly placed ESP32 under a made-up file name goes into that board', async () => {
+  const { sketchesIntoNewBoards, validateWorkbenchActions } = await import('../server/workbench-api.ts')
+  const actions = [
+    { tool: 'place_esp32', holeA: 'i1', holeB: 'b1' },
+    { tool: 'write_sketch', file: 'esp32_0.ino', code: 'void setup() {}\nvoid loop() {}' },
+  ]
+  const fixed = sketchesIntoNewBoards(actions, { sketches: [] })
+  assert.equal(fixed.length, 1)
+  assert.equal(fixed[0].code, 'void setup() {}\nvoid loop() {}')
+  assert.doesNotThrow(() => validateWorkbenchActions(fixed, { components: [], sketches: [] }))
+  // An edit to a file that exists is left alone
+  const keep = [{ tool: 'write_sketch', file: 'sketch.ino', code: 'x' }]
+  assert.deepEqual(sketchesIntoNewBoards(keep, { sketches: [{ name: 'sketch.ino' }] }), keep)
+})
