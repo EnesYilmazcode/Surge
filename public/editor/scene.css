@@ -15,3 +15,7 @@ html.scene,
 html.scene body {
   overflow: hidden;
 }
+
+/* While the homepage turns into the editor the camera is still gliding, so the
+   reset button (shown whenever the view is not the default) waits until it lands. */
+html.entering #reset-cam-btn { display: none !important; }

@@ -40,90 +40,45 @@
     }
     .is-loaded .scene { opacity: 1; }
 
-    /* A small top bar: the name, and a way into the editor. */
-    .top {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 2;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 1.1rem 1.4rem;
-      pointer-events: none;
+    /* Nothing sits over the scene: the 3D title names the page and the green
+       button opens the editor. These two are for screen readers and keyboards. */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
     }
-    .top a {
-      pointer-events: auto;
-      color: #F4F1EA;
+    /* The bench button cannot take focus, so Tab finds this link instead. */
+    .open {
+      position: fixed;
+      top: 1rem;
+      right: 1.2rem;
+      z-index: 2;
+      padding: 0.5rem 0.8rem;
+      border-radius: 8px;
+      background: #F59E0B;
+      color: #23262b;
       text-decoration: none;
       font-family: 'Space Grotesk', system-ui, sans-serif;
       font-weight: 600;
       font-size: 0.95rem;
+      transform: translateY(-200%);
     }
-    .brand { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 1.05rem !important; }
-    .brand img { display: block; width: 26px; height: 26px; border-radius: 7px; }
-    .open { opacity: 0.75; transition: opacity 0.2s ease, color 0.2s ease; }
-    .open:hover { opacity: 1; color: #F59E0B; }
-    /* The title sits above the bench, centred, and rises in once the scene is ready. */
-    .hero {
-      position: fixed;
-      top: 7vh;
-      left: 0;
-      right: 0;
-      z-index: 1;
-      text-align: center;
-      pointer-events: none;
-    }
-    .hero-title {
-      font-family: 'Space Grotesk', system-ui, sans-serif;
-      font-weight: 700;
-      font-size: clamp(3rem, 9vw, 6.5rem);
-      line-height: 1;
-      letter-spacing: -0.02em;
-      color: #F4F1EA;
-      text-shadow: 0 6px 40px rgba(0, 0, 0, 0.35);
-      opacity: 0;
-    }
-    .hero-sub {
-      margin-top: 0.9rem;
-      font-size: 0.95rem;
-      letter-spacing: 0.02em;
-      color: rgba(244, 241, 234, 0.66);
-      opacity: 0;
-    }
-    .is-loaded .hero-title { animation: rise 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 0.1s forwards; }
-    .is-loaded .hero-sub   { animation: rise 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 0.25s forwards; }
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(14px); }
-      to   { opacity: 1; transform: none; }
-    }
-    @media (max-width: 600px) {
-      .hero { top: 9vh; }
-    }
-
-    .open:focus-visible, .brand:focus-visible {
-      outline: 2px solid #F59E0B;
-      outline-offset: 3px;
-      border-radius: 6px;
+    .open:focus-visible {
+      transform: none;
+      outline: 2px solid #F4F1EA;
+      outline-offset: 2px;
     }
   </style>
 </head>
 <body>
   <iframe class="scene" id="scene" src="app.html?home=1" title="A 3D breadboard with a circuit on it. A green button on the bench runs the circuit."></iframe>
 
-  <div class="hero">
-    <div class="hero-title">Surge</div>
-    <div class="hero-sub">A 3D breadboard in your browser</div>
-  </div>
+  <h1 class="sr-only">Surge</h1>
 
-  <header class="top">
-    <a class="brand" href="/">
-      <img src="/editor/mark.svg" width="26" height="26" alt="" />
-      Surge
-    </a>
-    <a class="open" href="app.html">Open the editor</a>
-  </header>
+  <a class="open" href="app.html">Open the editor</a>
 
   <script>
     // The scene fades in once it has loaded.
@@ -131,6 +86,17 @@
     scene.addEventListener('load', () => {
       setTimeout(() => document.documentElement.classList.add('is-loaded'), 300);
     });
+
+    // Pressing the bench button turns this scene into the editor in place, with
+    // no new page. The address follows, so a refresh stays in the editor, and
+    // Back returns to the title.
+    window.surgeEditorOpened = () => {
+      history.pushState({ surge: 'editor' }, '', '/app.html?demo');
+      document.title = scene.contentDocument?.title || 'Surge';
+      scene.title = 'Surge editor';
+      document.querySelector('.open')?.remove();
+    };
+    window.addEventListener('popstate', () => location.reload());
   </script>
 </body>
 </html>
