@@ -1,7 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import Anthropic, { APIError } from '@anthropic-ai/sdk'
 import type { SurgeOptions } from './surge-api.js'
-// The CLI adapters load only when their provider is chosen. The hosted function runs
-// Gemini, and Vercel's build keeps these .ts paths, which would fail to load there.
+// The CLI adapters load only when their provider is chosen. The hosted function calls
+// the Anthropic API, and Vercel's build keeps these .ts paths, which would fail to load there.
 const loadClaude = () => import('./claude-cli.ts')
 const loadCodex = () => import('./codex-cli.ts')
 
@@ -109,6 +110,16 @@ export const schema = {
   additionalProperties: false,
 }
 
+// Claude's structured outputs reject numeric limits. validateWorkbenchActions checks them after the reply.
+function withoutNumericLimits(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutNumericLimits)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => key !== 'minimum' && key !== 'maximum')
+    .map(([key, item]) => [key, withoutNumericLimits(item)]))
+}
+const claudeSchema = withoutNumericLimits(schema) as Record<string, unknown>
+
 export const instruction = `You are Surge, an electronics assistant controlling a 3D solderless breadboard.
 Return JSON with reply and actions. For explanations and analysis only, return no actions.
 Propose complete working circuits when asked to build; preserve existing work unless the user requests a new circuit or a clear.
@@ -152,6 +163,13 @@ function transcript(history: Array<{ role: string; text: string }> | undefined, 
   return earlier ? `Earlier in this chat:\n${earlier}\n\n${request}` : request
 }
 
+function anthropicFailure(error: APIError): [number, string] {
+  if (error.status === 429) return [429, 'Claude has reached its request limit. Try again shortly.']
+  if (/credit balance/i.test(error.message)) return [402, 'The Anthropic account is out of credits. Add credits in the Claude Console, then try again.']
+  if (error.status === 401 || error.status === 403) return [502, 'The Anthropic key on the server was rejected. Check ANTHROPIC_API_KEY.']
+  return [502, 'Claude could not complete the request. Check the server configuration.']
+}
+
 function json(response: ServerResponse, status: number, body: unknown) {
   response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
   response.end(JSON.stringify(body))
@@ -183,9 +201,11 @@ export function createWorkbenchHandler(options: SurgeOptions) {
     } catch { json(response, 400, { error: 'Invalid board or message. Your circuit has not changed.' }); return }
     const provider = options.provider ?? 'gemini'
     if (provider === 'gemini' && !options.apiKey) { json(response, 503, { error: 'Connect a Gemini key on the local server to use Surge.' }); return }
+    if (provider === 'anthropic' && !options.apiKey) { json(response, 503, { error: 'Connect an Anthropic API key on the server to use Surge.' }); return }
     const controller = new AbortController()
-    // A Claude Code turn can take a minute on a large board; a Gemini call is capped at 45 s.
-    const timeout = setTimeout(() => controller.abort(), provider === 'gemini' ? 45000 : 180000)
+    // A Claude Code turn can take a minute on a large board. The hosted function stops at 60 s,
+    // so the Anthropic call is cut at 55 s, and a Gemini call at 45 s.
+    const timeout = setTimeout(() => controller.abort(), provider === 'claude' || provider === 'codex' ? 180000 : provider === 'anthropic' ? 55000 : 45000)
     const cancel = () => { if (!response.writableEnded) controller.abort() }
     response.on('close', cancel)
     const turn = `Board state:\n${body.markdown}\n\nStructured state:\n${JSON.stringify(body.board)}\n\nRequest:\n${body.message}`
@@ -197,6 +217,28 @@ export function createWorkbenchHandler(options: SurgeOptions) {
       } else if (provider === 'codex') {
         const { askCodex, dropNulls, strictSchema } = await loadCodex()
         result = dropNulls(await askCodex({ system: instruction, prompt: transcript(body.history, turn), schema: strictSchema(schema), signal: controller.signal }, options.codex)) as { reply?: unknown; actions?: unknown }
+      } else if (provider === 'anthropic') {
+        try {
+          const client = new Anthropic({ apiKey: options.apiKey, fetch: options.fetch, maxRetries: 1 })
+          // The API wants the first turn from the user, so an opening editor reply is dropped.
+          const earlier = (body.history || []).map((entry) => ({ role: entry.role === 'model' ? 'assistant' : 'user', content: entry.text })) as Anthropic.MessageParam[]
+          while (earlier.length && earlier[0].role !== 'user') earlier.shift()
+          const message = await client.messages.create({
+            model: options.model || 'claude-opus-5-5',
+            max_tokens: 16000,
+            system: instruction,
+            thinking: { type: 'adaptive' },
+            output_config: { effort: 'medium', format: { type: 'json_schema', schema: claudeSchema } },
+            messages: [...earlier, { role: 'user', content: turn }],
+          }, { signal: controller.signal })
+          if (message.stop_reason !== 'end_turn') throw new Error(`Claude stopped with ${message.stop_reason}`)
+          result = JSON.parse(message.content.flatMap((block) => block.type === 'text' ? [block.text] : []).join('')) as { reply?: unknown; actions?: unknown }
+        } catch (error) {
+          if (controller.signal.aborted || !(error instanceof APIError)) throw error
+          const [status, message] = anthropicFailure(error)
+          if (!response.destroyed) json(response, status, { error: message })
+          return
+        }
       } else {
         const upstream = await (options.fetch || globalThis.fetch)(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(options.model || 'gemini-2.5-flash')}:generateContent`, {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': options.apiKey as string },
