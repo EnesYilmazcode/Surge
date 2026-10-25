@@ -51,7 +51,7 @@ test('the parts list fits without a scroll bar and lists the parts we ship', asy
       overflows: side.scrollHeight > side.clientHeight,
     };
   });
-  assert.deepEqual(list.names, ['Resistor', 'LED', 'Battery', 'Buzzer', '7-segment display', 'Push button', 'ESP32', 'Jumper wire']);
+  assert.deepEqual(list.names, ['Resistor', 'LED', 'Battery', 'Buzzer', '7-segment display', 'Push button', 'ESP32', 'Wire']);
   assert.equal(list.overflows, false);
   await page.close();
 });

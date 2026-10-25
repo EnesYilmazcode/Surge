@@ -16,7 +16,7 @@
 
   const NAMES = {
     resistor: 'Resistor', led: 'LED', battery: '9 V battery', buzzer: 'Buzzer', button: 'Push button',
-    esp32: 'ESP32 DevKit', wire: 'Jumper wire', seg7: '7-segment display',
+    esp32: 'ESP32 DevKit', wire: 'Wire', seg7: '7-segment display',
   };
 
   const ohms = r => r >= 1000 ? (r / 1000) + ' kΩ' : r + ' Ω';
