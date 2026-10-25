@@ -5,8 +5,11 @@ import { classicThree } from './server/classic-three'
 
 export default defineConfig(({ mode }) => {
   const env = { ...loadEnv(mode, process.cwd(), ''), ...process.env }
+  // Local chat runs on a CLI signed in on this machine: Claude Code by default, Codex with
+  // SURGE_PROVIDER=codex, and Gemini with SURGE_PROVIDER=gemini.
+  const provider = env.SURGE_PROVIDER === 'codex' ? 'codex' : env.SURGE_PROVIDER === 'gemini' ? 'gemini' : 'claude'
   return {
-    plugins: [classicThree(), react(), surgeApi({ apiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY, model: env.GEMINI_MODEL })],
+    plugins: [classicThree(), react(), surgeApi({ apiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY, model: env.GEMINI_MODEL, provider, claude: { model: env.SURGE_CLAUDE_MODEL }, codex: { model: env.SURGE_CODEX_MODEL } })],
     optimizeDeps: { exclude: ['three-classic/examples/jsm/controls/OrbitControls.js', 'three-classic/examples/jsm/environments/RoomEnvironment.js'] },
     ssr: { noExternal: ['three-classic', 'three'] },
     build: { rollupOptions: { input: { index: 'index.html', app: 'app.html', studio: 'studio.html' } } },

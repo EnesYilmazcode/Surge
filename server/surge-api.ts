@@ -3,8 +3,11 @@ import type { Plugin } from 'vite'
 import { applyCircuitActions, parseAgentReply } from '../src/agent/actions.ts'
 import { validateDesign } from '../src/data/project-file.ts'
 import { createWorkbenchHandler } from './workbench-api.ts'
+import type { ClaudeCliOptions } from './claude-cli.ts'
+import type { CodexCliOptions } from './codex-cli.ts'
 
-export interface SurgeOptions { apiKey?: string; model?: string; fetch?: typeof globalThis.fetch }
+// provider 'claude' and 'codex' answer chat through the local CLI signed in on this machine; 'gemini' (the default) calls the Gemini API.
+export interface SurgeOptions { apiKey?: string; model?: string; fetch?: typeof globalThis.fetch; provider?: 'gemini' | 'claude' | 'codex'; claude?: ClaudeCliOptions; codex?: CodexCliOptions }
 export const DEFAULT_MODEL = 'gemini-2.5-flash'
 
 const string = { type: 'string' }
@@ -79,7 +82,10 @@ export function createSurgeHandler(options: SurgeOptions) {
     }
     if (path === '/api/surge/workbench') { await workbench(request, response); return }
     if (path === '/api/surge/status' && request.method === 'GET') {
-      json(response, 200, { configured: Boolean(options.apiKey), provider: 'Gemini', model }); return
+      const provider = options.provider ?? 'gemini'
+      const label = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini' }[provider]
+      const modelName = provider === 'claude' ? (options.claude?.model || 'opus') : provider === 'codex' ? (options.codex?.model || 'Codex default') : model
+      json(response, 200, { configured: provider !== 'gemini' || Boolean(options.apiKey), provider: label, model: modelName }); return
     }
     if (path !== '/api/surge/chat' || request.method !== 'POST') {
       json(response, 405, { error: 'Method not allowed.' }); return
